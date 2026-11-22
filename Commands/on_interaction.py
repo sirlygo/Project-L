@@ -103,15 +103,6 @@ class OnInteractionEvent(commands.Cog):
                 print(f"[!] Could not record ticket response time: {exc}")
 
 
-    def connect(self):
-        try:
-            conn = sqlite3.connect(f"Data/users.db")
-            curs = conn.cursor()
-            return conn, curs
-        except Exception as exc:
-            print(exc)
-            return None
-
     @commands.Cog.listener()
     async def on_ready(self):
         for guild, config in active_guild_configs(self.client.guilds):

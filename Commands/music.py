@@ -96,8 +96,6 @@ class Start(commands.Cog):
             return
         voice = discord.utils.get(self.client.voice_clients, guild=interaction.guild)
         try:
-            song_info = await asyncio.to_thread(extract_playable_info, url)
-            await asyncio.to_thread(probe_audio_stream, ffmpeg_executable, song_info["url"])
             if voice and voice.is_connected():
                 await voice.move_to(channel)
             else:
@@ -167,6 +165,8 @@ class Start(commands.Cog):
 
         voice = discord.utils.get(self.client.voice_clients, guild=interaction.guild)
         try:
+            song_info = await asyncio.to_thread(extract_playable_info, url)
+            await asyncio.to_thread(probe_audio_stream, ffmpeg_executable, song_info["url"])
             if voice and voice.is_connected():
                 await voice.move_to(channel)
             else:

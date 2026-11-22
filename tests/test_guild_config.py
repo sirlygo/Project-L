@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
-from config_loader import ConfigError
+from config_loader import AUTOMATIC_SETUP_VERSION, ConfigError
 from guild_config import (
     active_guild_configs, guild_config_path, guild_database_path,
     load_active_guild_config, load_guild_config,
@@ -23,6 +23,16 @@ class GuildConfigTests(unittest.TestCase):
             secondary_path = guild_config_path(2, root=root)
             secondary_path.parent.mkdir()
             secondary = {**EXAMPLE, "guildId": 2, "client_id": 10, "token": ""}
+            secondary.update({
+                "verified": 21, "streamRole": 22, "welcome": 23,
+                "modmail": 24, "voicecategory": 25, "transcripts": 26,
+                "tickets": {"category_help": 27, "category_suggestions": 28,
+                            "category_report": 29},
+                "managedResources": {**EXAMPLE["managedResources"],
+                                     "provisioningVersion": AUTOMATIC_SETUP_VERSION,
+                                     "panelsChannel": 30, "welcomeMessagesChannel": 31,
+                                     "helpChannel": 32},
+            })
             secondary_path.write_text(json.dumps(secondary), encoding="utf-8")
             with patch("guild_config.MULTI_GUILD_READY", True), \
                  patch("guild_config.guild_config_path", side_effect=lambda guild_id, **_kwargs: root / str(guild_id) / "config.json"):
@@ -35,6 +45,10 @@ class GuildConfigTests(unittest.TestCase):
                         primary_config=primary,
                     )], [1, 2],
                 )
+                secondary["managedResources"]["provisioningVersion"] = 0
+                secondary_path.write_text(json.dumps(secondary), encoding="utf-8")
+                with self.assertRaisesRegex(ConfigError, "needs the current Project L setup"):
+                    load_active_guild_config(2, primary_config=primary)
 
     def test_primary_is_unchanged_and_unknown_guild_fails_closed(self):
         primary = {**EXAMPLE, "guildId": 1, "client_id": 10, "token": "private"}
@@ -42,8 +56,9 @@ class GuildConfigTests(unittest.TestCase):
             root = Path(directory)
             self.assertIs(load_guild_config(1, root=root, primary_config=primary), primary)
             self.assertIs(load_active_guild_config(1, primary_config=primary), primary)
-            with self.assertRaisesRegex(ConfigError, "not enabled"):
-                load_active_guild_config(2, primary_config=primary)
+            with patch("guild_config.MULTI_GUILD_READY", False):
+                with self.assertRaisesRegex(ConfigError, "not enabled"):
+                    load_active_guild_config(2, primary_config=primary)
             active = list(active_guild_configs([SimpleNamespace(id=1), SimpleNamespace(id=2)],
                                                primary_config=primary))
             self.assertEqual([guild.id for guild, _ in active], [1])

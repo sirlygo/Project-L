@@ -1,18 +1,13 @@
-"""Strict per-guild configuration lookup for the ongoing multi-server migration.
-
-This module does not enable additional guilds in bot handlers. It deliberately
-fails closed until those handlers and their data stores are tenant-aware.
-"""
+"""Strict per-guild configuration lookup and activation boundary."""
 
 from pathlib import Path
 
-from config_loader import BASE_DIR, ConfigError, load_config
+from config_loader import AUTOMATIC_SETUP_VERSION, BASE_DIR, ConfigError, load_config
 
 
 GUILD_CONFIG_ROOT = BASE_DIR / "Data" / "guilds"
 TENANT_DATABASES = {"users.db", "user.db", "levels.db", "dashboard.db"}
-# Keep secondary guilds disabled until every event handler and store is migrated.
-MULTI_GUILD_READY = False
+MULTI_GUILD_READY = True
 
 
 def guild_config_path(guild_id: int, *, root: Path = GUILD_CONFIG_ROOT) -> Path:
@@ -46,7 +41,27 @@ def load_active_guild_config(guild_id: int, *, primary_config=None) -> dict:
         return primary
     if not MULTI_GUILD_READY:
         raise ConfigError("Additional servers are not enabled in this release.")
-    return load_guild_config(guild_id, primary_config=primary)
+    config = load_guild_config(guild_id, primary_config=primary)
+    managed = config.get("managedResources") or {}
+    try:
+        version = int(managed.get("provisioningVersion", 0))
+    except (TypeError, ValueError):
+        version = 0
+    required = [
+        config.get("verified"), config.get("streamRole"), config.get("welcome"),
+        config.get("modmail"), config.get("voicecategory"), config.get("transcripts"),
+        *(config.get("tickets") or {}).values(),
+        managed.get("panelsChannel"), managed.get("welcomeMessagesChannel"),
+        managed.get("helpChannel"),
+    ]
+    if version < AUTOMATIC_SETUP_VERSION or any(
+        isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        for value in required
+    ):
+        raise ConfigError(
+            f"Server {guild_id} needs the current Project L setup before it can be activated."
+        )
+    return config
 
 
 def active_guild_configs(guilds, *, primary_config=None):

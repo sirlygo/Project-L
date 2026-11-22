@@ -89,15 +89,6 @@ class MembersCommand(commands.Cog):
         self._last_modmail_warning = None
         self._modmail_locks = {}
 
-    def connect(self):
-        try:
-            conn = sqlite3.connect(f"Data/users.db")
-            curs = conn.cursor()
-            return conn, curs
-        except Exception as exc:
-            print(exc)
-            return None
-
     @staticmethod
     def _rebuild_button_view(message, message_id, *, guild_id=None, excluded_label=None):
         """Recreate every button row without silently dropping later rows."""
