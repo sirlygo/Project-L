@@ -68,8 +68,21 @@ class SetupConfigTests(unittest.TestCase):
             "panelsChannel",
             "privateVoicePanelChannel",
             "helpChannel",
+            "welcomeMessagesChannel",
+            "rulesChannel",
+            "announcementsChannel",
+            "boostsChannel",
+            "giveawaysChannel",
+            "publicVoiceChannel",
+            "xpChannel",
         ):
             config["managedResources"][key] = generated_id()
+        for mapping_name in ("levelLounges", "staffRoles"):
+            for key in config["managedResources"][mapping_name]:
+                config["managedResources"][mapping_name][key] = generated_id()
+        for track in ("chat", "voice"):
+            for key in config["managedResources"]["levelRoles"][track]:
+                config["managedResources"]["levelRoles"][track][key] = generated_id()
         config["managedResources"]["provisioningVersion"] = AUTOMATIC_SETUP_VERSION
 
     def test_minimal_configuration_is_valid(self):

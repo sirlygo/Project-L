@@ -449,8 +449,21 @@ def configuration_status(
                     "panelsChannel",
                     "privateVoicePanelChannel",
                     "helpChannel",
+                    "welcomeMessagesChannel",
+                    "rulesChannel",
+                    "announcementsChannel",
+                    "boostsChannel",
+                    "giveawaysChannel",
+                    "publicVoiceChannel",
+                    "xpChannel",
                 )
             )
+            required_resource_ids.extend((managed.get("levelLounges") or {}).values())
+            required_resource_ids.extend((managed.get("staffRoles") or {}).values())
+            for track in ("chat", "voice"):
+                required_resource_ids.extend(
+                    ((managed.get("levelRoles") or {}).get(track) or {}).values()
+                )
         else:
             required_resource_ids.append(0)
         resources_incomplete = any(

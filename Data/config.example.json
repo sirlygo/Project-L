@@ -28,6 +28,19 @@
     "panelsChannel": 0,
     "privateVoicePanelChannel": 0,
     "helpChannel": 0,
+    "welcomeMessagesChannel": 0,
+    "rulesChannel": 0,
+    "announcementsChannel": 0,
+    "boostsChannel": 0,
+    "giveawaysChannel": 0,
+    "publicVoiceChannel": 0,
+    "xpChannel": 0,
+    "levelLounges": {"5": 0, "15": 0, "30": 0},
+    "staffRoles": {"admin": 0, "mod": 0},
+    "levelRoles": {
+      "chat": {"5": 0, "15": 0, "30": 0},
+      "voice": {"5": 0, "15": 0, "30": 0}
+    },
     "provisioningVersion": 0
   },
   "tickets": {

@@ -44,7 +44,7 @@ token = config["token"]
 guildId = config["guildId"]
 verifiedRoleId = config["verified"]
 kickMemberFunction = config["kickMemberFunction"]
-welcomeid = config["welcome"]
+welcomeid = config.get("managedResources", {}).get("welcomeMessagesChannel") or config["welcome"]
 botclientid = config["client_id"]
 youtubeid = config["ytChannelId"]
 twitchid = config["twChannelId"]
@@ -359,6 +359,14 @@ async def on_ready():
         if panel_report.failed:
             print("[!] Panel setup needs attention: " + "; ".join(panel_report.failed))
         client.panels_reconciled = not panel_report.failed
+
+    stats_id = config.get("managedResources", {}).get("statsCategory", 0)
+    stats_category = client.get_channel(int(stats_id or 0))
+    if isinstance(stats_category, discord.CategoryChannel) and stats_category.position != 0:
+        try:
+            await stats_category.edit(position=0, reason="Keep Project L server stats at the top")
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[!] Could not move server stats to top: {exc}")
 
     if guildId and any(serverStats.values()) and not update_stats.is_running():
         update_stats.start()

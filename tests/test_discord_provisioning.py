@@ -187,6 +187,15 @@ class DiscordProvisioningTests(unittest.TestCase):
             config["managedResources"]["helpChannel"],
             config["managedResources"]["panelsChannel"],
         )
+        for key in (
+            "welcomeMessagesChannel", "rulesChannel", "announcementsChannel",
+            "boostsChannel", "giveawaysChannel", "xpChannel", "publicVoiceChannel",
+        ):
+            self.assertTrue(config["managedResources"][key])
+        self.assertTrue(config["managedResources"]["staffRoles"]["admin"])
+        self.assertTrue(config["managedResources"]["staffRoles"]["mod"])
+        self.assertEqual(len(config["managedResources"]["levelRoles"]["chat"]), 3)
+        self.assertEqual(len(config["managedResources"]["levelRoles"]["voice"]), 3)
         for key, name in (
             ("privateVoicePanelChannel", "create-private-voice-channel"),
             ("helpChannel", "help"),

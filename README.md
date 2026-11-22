@@ -39,6 +39,8 @@ wizard.
 5. Project L creates or reuses its verified and streamer roles, secured
    categories and channels, statistics counters, a self-roles channel, a
    `create-private-voice-channel` panel channel, and a `help` ticket channel. It
+   also creates `#verify`, `#general`, rules, announcements, boosts, giveaways,
+   XP progress, three level lounges, and a public Custom Voice Chat. It
    remembers all generated IDs automatically; no channel or category IDs are
    requested.
 6. Start the bot:
@@ -61,6 +63,20 @@ bot's permissions and role hierarchy, reuses valid Project L resources, creates
 anything missing, and saves generated IDs to the local, Git-ignored
 `Data/config.json` and `Data/roles.json` files. Running setup again is
 idempotent and does not delete server channels.
+
+The setup reuses the managed welcome channel as `#verify` instead of creating
+an extra welcome channel. The bot posts its welcome messages in `#general`.
+Rules and announcements are read-only for regular members; add your own rules
+and announcement text after setup.
+
+Chat and voice XP are separate. Eligible chat messages earn XP at most once
+per minute. Voice XP is counted once per minute only when at least two
+non-bot members are present and the member is not muted or deafened; Discord
+does not expose reliable proof of actual speaking to this bot. `/rank` shows
+the exact totals privately. The `#xp-progress` channel posts only at levels
+5, 15, and 30; these roles unlock matching level lounges. Admin and Moderator
+roles are created without assigning them to anyone. Review their permissions
+and assign them manually to trusted staff.
 
 To keep the bot token out of JSON entirely, set it before opening the wizard:
 

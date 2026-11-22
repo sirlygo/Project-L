@@ -96,6 +96,13 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "panels channel": managed.get("panelsChannel"),
         "private voice creation channel": managed.get("privateVoicePanelChannel"),
         "help channel": managed.get("helpChannel"),
+        "general channel": managed.get("welcomeMessagesChannel"),
+        "rules channel": managed.get("rulesChannel"),
+        "announcements channel": managed.get("announcementsChannel"),
+        "boosts channel": managed.get("boostsChannel"),
+        "giveaways channel": managed.get("giveawaysChannel"),
+        "public voice channel": managed.get("publicVoiceChannel"),
+        "XP progress channel": managed.get("xpChannel"),
     }
     for key, value in (config.get("tickets") or {}).items():
         required[f"ticket resource {key}"] = value
@@ -103,6 +110,12 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         required[f"server statistic {key}"] = value
     for key, value in (config.get("logChannelIds") or {}).items():
         required[f"log resource {key}"] = value
+    for level in ("5", "15", "30"):
+        required[f"level {level} lounge"] = managed.get("levelLounges", {}).get(level)
+        for track in ("chat", "voice"):
+            required[f"{track} level {level} role"] = managed.get("levelRoles", {}).get(track, {}).get(level)
+    for key in ("admin", "mod"):
+        required[f"{key} role"] = managed.get("staffRoles", {}).get(key)
     errors.extend(
         f"{label} is not configured" for label, value in required.items() if not value
     )

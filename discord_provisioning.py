@@ -356,7 +356,9 @@ def _staff_role_ids(snapshot: _DiscordSnapshot) -> list[int]:
         if role_id == snapshot.guild_id:
             continue
         if permissions & (
-            PERMISSION_BITS["administrator"] | PERMISSION_BITS["manage_channels"]
+            PERMISSION_BITS["administrator"]
+            | PERMISSION_BITS["manage_channels"]
+            | PERMISSION_BITS["moderate_members"]
         ):
             result.append(role_id)
     return result
@@ -901,6 +903,13 @@ def configuration_without_managed_channels(
             "panelsChannel",
             "privateVoicePanelChannel",
             "helpChannel",
+            "welcomeMessagesChannel",
+            "rulesChannel",
+            "announcementsChannel",
+            "boostsChannel",
+            "giveawaysChannel",
+            "publicVoiceChannel",
+            "xpChannel",
         ):
             clean[MANAGED_RESOURCES_KEY][child] = 0
     for friend in clean.get("friendTwitch", []):
@@ -948,6 +957,33 @@ def provision_guild_resources(
         mentionable=False,
     )
     updated_config["streamRole"] = _permission_value(streamer_role.get("id"))
+
+    staff_roles = managed.setdefault("staffRoles", {})
+    for key, label, permissions in (
+        ("admin", "Project L Admin", PERMISSION_BITS["manage_channels"] | PERMISSION_BITS["manage_roles"] | PERMISSION_BITS["manage_messages"] | PERMISSION_BITS["kick_members"] | PERMISSION_BITS["ban_members"]),
+        ("mod", "Project L Moderator", PERMISSION_BITS["manage_messages"] | PERMISSION_BITS["kick_members"] | PERMISSION_BITS["moderate_members"]),
+    ):
+        role = _ensure_role(
+            snapshot=snapshot, request_json=request_json, token=token,
+            timeout=timeout, report=report, label=key, name=label,
+            preferred_id=_permission_value(staff_roles.get(key)),
+            mentionable=False, required_permissions=permissions,
+        )
+        staff_roles[key] = _permission_value(role.get("id"))
+
+    level_roles = managed.setdefault("levelRoles", {})
+    for track in ("chat", "voice"):
+        track_roles = level_roles.setdefault(track, {})
+        for level in (5, 15, 30):
+            role = _ensure_role(
+                snapshot=snapshot, request_json=request_json, token=token,
+                timeout=timeout, report=report,
+                label=f"{track} level {level}",
+                name=f"Project L {track.title()} Level {level}",
+                preferred_id=_permission_value(track_roles.get(str(level))),
+                mentionable=False,
+            )
+            track_roles[str(level)] = _permission_value(role.get("id"))
 
     self_roles = managed.get("selfRoles")
     if not isinstance(self_roles, dict):
@@ -1038,7 +1074,7 @@ def provision_guild_resources(
         report=report,
         key="welcome",
         label="welcome channel",
-        name="welcome",
+        name="verify",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(updated_config.get("welcome"))],
         parent_id=_channel_id(community),
@@ -1047,6 +1083,53 @@ def provision_guild_resources(
     updated_config["welcome"] = _channel_id(welcome)
     # Welcome images are attached directly to the public welcome message now.
     updated_config["welcome_images"] = 0
+
+    community_channels = (
+        ("welcomeMessagesChannel", "general", "general", None),
+        ("rulesChannel", "rules", "rules", public_overwrites),
+        ("announcementsChannel", "announcements", "announcements", public_overwrites),
+        ("boostsChannel", "server-boosts", "server boosts", public_overwrites),
+        ("giveawaysChannel", "giveaways", "giveaways", public_overwrites),
+        ("xpChannel", "xp-progress", "XP progress", public_overwrites),
+    )
+    for config_key, name, label, overwrites in community_channels:
+        channel = _ensure_resource(
+            snapshot=snapshot, request_json=request_json, token=token,
+            timeout=timeout, report=report, key=name, label=f"{label} channel",
+            name=name, channel_type=TEXT_CHANNEL,
+            preferred_ids=[_permission_value(managed.get(config_key))],
+            parent_id=_channel_id(community), overwrites=overwrites,
+        )
+        managed[config_key] = _channel_id(channel)
+
+    lounges = managed.setdefault("levelLounges", {})
+    for level in (5, 15, 30):
+        access = PERMISSION_BITS["view_channel"] | PERMISSION_BITS["send_messages"] | PERMISSION_BITS["read_message_history"]
+        level_overwrites = _private_overwrites(snapshot)
+        for track in ("chat", "voice"):
+            level_overwrites.append(
+                _overwrite(level_roles[track][str(level)], 0, allow=access)
+            )
+        lounge = _ensure_resource(
+            snapshot=snapshot, request_json=request_json, token=token,
+            timeout=timeout, report=report, key=f"level-{level}-lounge",
+            label=f"level {level} lounge", name=f"level-{level}-lounge",
+            channel_type=TEXT_CHANNEL,
+            preferred_ids=[_permission_value(lounges.get(str(level)))],
+            parent_id=_channel_id(community), overwrites=level_overwrites,
+            secure_existing=True,
+        )
+        lounges[str(level)] = _channel_id(lounge)
+
+    public_voice = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="public-voice",
+        label="public custom voice chat", name="Custom Voice Chat",
+        channel_type=VOICE_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("publicVoiceChannel"))],
+        parent_id=_channel_id(community),
+    )
+    managed["publicVoiceChannel"] = _channel_id(public_voice)
 
     panels = _ensure_resource(
         snapshot=snapshot,

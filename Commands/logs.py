@@ -145,7 +145,10 @@ class LogsCommand(commands.Cog):
             )
         emb.set_footer(text=guild.name)
         try:
-            await logschannel.send(content=f"**{type}**", embed=emb)
+            await logschannel.send(
+                content=f"**{type}**", embed=emb,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
             print(f"[!] Could not send {type} log to channel {channelid}: {exc}")
         return

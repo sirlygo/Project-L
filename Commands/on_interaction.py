@@ -31,7 +31,8 @@ def ticket_staff_overwrites(category, existing_overwrites=None):
     for role in category.guild.roles:
         if role.is_default():
             continue
-        if role.permissions.administrator or role.permissions.manage_channels:
+        if (role.permissions.administrator or role.permissions.manage_channels
+                or getattr(role.permissions, "moderate_members", False)):
             staff_permissions = overwrites.get(role, discord.PermissionOverwrite())
             staff_permissions.update(
                 view_channel=True,
@@ -148,7 +149,8 @@ class OnInteractionEvent(commands.Cog):
     @staticmethod
     def is_staff(interaction: discord.Interaction):
         permissions = interaction.user.guild_permissions
-        return permissions.administrator or permissions.manage_channels
+        return (permissions.administrator or permissions.manage_channels
+                or getattr(permissions, "moderate_members", False))
 
     @classmethod
     def can_access_ticket(cls, interaction: discord.Interaction):
