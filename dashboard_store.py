@@ -21,6 +21,11 @@ def _connect():
         "member_id INTEGER NOT NULL, moderator_id INTEGER NOT NULL, "
         "action TEXT NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL);"
         "CREATE INDEX IF NOT EXISTS cases_member ON cases(guild_id,member_id,created_at);"
+        "CREATE TABLE IF NOT EXISTS case_evidence ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, "
+        "case_id INTEGER NOT NULL, author_id INTEGER NOT NULL, "
+        "message_url TEXT NOT NULL, note TEXT NOT NULL, created_at INTEGER NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS case_evidence_case ON case_evidence(guild_id,case_id,id);"
         "CREATE TABLE IF NOT EXISTS tickets ("
         "channel_id INTEGER PRIMARY KEY, guild_id INTEGER NOT NULL, owner_id INTEGER NOT NULL, "
         "kind TEXT NOT NULL, status TEXT NOT NULL, priority TEXT NOT NULL, "
@@ -100,6 +105,25 @@ def case_exists(guild_id, case_id):
     with closing(_connect()) as db:
         return db.execute("SELECT 1 FROM cases WHERE guild_id=? AND id=?",
                           (guild_id, case_id)).fetchone() is not None
+
+
+def add_case_evidence(guild_id, case_id, author_id, message_url, note):
+    if not case_exists(guild_id, case_id):
+        raise ValueError("Case not found in this server.")
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "INSERT INTO case_evidence(guild_id,case_id,author_id,message_url,note,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (guild_id, case_id, author_id, message_url, note[:1000], int(time.time())),
+        ).lastrowid
+
+
+def list_case_evidence(guild_id, case_id):
+    with closing(_connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT * FROM case_evidence WHERE guild_id=? AND case_id=? ORDER BY id DESC LIMIT 100",
+            (guild_id, case_id),
+        )]
 
 
 def create_ticket_record(channel_id, guild_id, owner_id, kind, answers=None):

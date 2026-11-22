@@ -8,6 +8,7 @@ import hmac
 import io
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -21,7 +22,8 @@ from PIL import Image
 from branding import ART_KEYS, DEFAULT_RULES
 from config_loader import BASE_DIR, CONFIG_PATH, load_config
 from dashboard_store import (
-    add_staff_note, case_exists, get_appeal, get_config_snapshot, get_ticket, get_transcript, list_appeals, list_cases, list_config_history,
+    add_case_evidence, add_staff_note, case_exists, get_appeal, get_config_snapshot,
+    get_ticket, get_transcript, list_appeals, list_case_evidence, list_cases, list_config_history,
     list_staff_notes, list_tickets, overview, record_config_snapshot, review_appeal,
     search_transcripts, submit_appeal, ticket_exists, update_ticket,
     cancel_announcement, list_announcements, schedule_announcement,
@@ -111,6 +113,10 @@ class Dashboard:
             web.put("/api/settings", self.put_settings),
             web.post("/api/art/{key}", self.upload_art),
             web.get("/api/cases", self.api_cases),
+            web.get("/api/cases/{case_id}/evidence", self.get_evidence),
+            web.post("/api/cases/{case_id}/evidence", self.post_evidence),
+            web.get("/api/native-automod", self.get_native_automod),
+            web.post("/api/native-automod/{rule_id}/toggle", self.toggle_native_automod),
             web.get("/api/tickets", self.api_tickets),
             web.get("/api/notes/{kind}/{subject_id}", self.get_notes),
             web.post("/api/notes/{kind}/{subject_id}", self.post_note),
@@ -472,6 +478,66 @@ class Dashboard:
         if member and not member.isdecimal():
             return _json_error("Member ID must be numeric.")
         return web.json_response({"cases": list_cases(identity["guild"].id, member_id=int(member) if member else None)})
+
+    async def get_native_automod(self, request):
+        identity = await self._require(request, owner=True)
+        try:
+            rules = await identity["guild"].fetch_automod_rules()
+        except (discord.Forbidden, discord.HTTPException):
+            return _json_error("Discord denied access to native AutoMod rules.", 403)
+        return web.json_response({"rules": [
+            {"id": str(rule.id), "name": rule.name, "enabled": rule.enabled}
+            for rule in rules
+        ]})
+
+    async def toggle_native_automod(self, request):
+        identity = await self._require(request, owner=True)
+        try:
+            rule_id = int(request.match_info["rule_id"])
+            payload = await request.json()
+            if not isinstance(payload.get("enabled"), bool):
+                raise ValueError("enabled must be true or false.")
+            rules = await identity["guild"].fetch_automod_rules()
+            rule = next((item for item in rules if item.id == rule_id), None)
+            if rule is None:
+                return _json_error("Rule not found in this server.", 404)
+            await rule.edit(enabled=payload["enabled"], reason="Project L owner dashboard")
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            return _json_error(str(exc))
+        except (discord.Forbidden, discord.HTTPException):
+            return _json_error("Discord denied the AutoMod change.", 403)
+        return web.json_response({"saved": True})
+
+    async def get_evidence(self, request):
+        identity = await self._require(request, staff=True)
+        try:
+            case_id = int(request.match_info["case_id"])
+        except ValueError:
+            return _json_error("Invalid case ID.")
+        if not case_exists(identity["guild"].id, case_id):
+            return _json_error("Case not found.", 404)
+        return web.json_response({"evidence": list_case_evidence(identity["guild"].id, case_id)})
+
+    async def post_evidence(self, request):
+        identity = await self._require(request, staff=True)
+        try:
+            case_id = int(request.match_info["case_id"])
+            data = await request.json()
+            message_url = str(data.get("messageUrl", "")).strip()
+            note = str(data.get("note", "")).strip()
+            match = re.fullmatch(
+                r"https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)/(\d+)",
+                message_url,
+            )
+            if not match or int(match.group(1)) != identity["guild"].id:
+                raise ValueError("Use a Discord message link from this server.")
+            if len(note) > 1000:
+                raise ValueError("Evidence note is too long.")
+            evidence_id = add_case_evidence(identity["guild"].id, case_id,
+                                            identity["user_id"], message_url, note)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            return _json_error(str(exc))
+        return web.json_response({"id": evidence_id}, status=201)
 
     async def api_tickets(self, request):
         identity = await self._require(request, staff=True)

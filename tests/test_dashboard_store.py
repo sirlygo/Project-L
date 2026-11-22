@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dashboard_store import (
-    add_staff_note, cancel_announcement, claim_due_announcements,
+    add_case_evidence, add_staff_note, cancel_announcement, claim_due_announcements,
     create_ticket_record, finish_announcement, get_appeal, get_config_snapshot, get_ticket,
-    list_announcements, list_appeals, list_cases, list_staff_notes,
+    list_announcements, list_appeals, list_case_evidence, list_cases, list_staff_notes,
     list_tickets, overview,
     mark_interrupted_announcements_failed, mark_response_alerted, overdue_tickets,
     purge_transcripts, record_case,
@@ -26,6 +26,10 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(list_cases(1)[0]["id"], case_id)
             self.assertEqual(list_cases(1, member_id=2)[0]["action"], "warn")
             self.assertEqual(list_cases(2), [])
+            evidence_id = add_case_evidence(1, case_id, 3,
+                                            "https://discord.com/channels/1/10/20", "Context")
+            self.assertEqual(list_case_evidence(1, case_id)[0]["id"], evidence_id)
+            self.assertEqual(list_case_evidence(2, case_id), [])
             snapshot_id = record_config_snapshot(1, 3, {"branding": {"rulesText": "old"}})
             self.assertEqual(get_config_snapshot(1, snapshot_id)["branding"]["rulesText"], "old")
             self.assertIsNone(get_config_snapshot(2, snapshot_id))

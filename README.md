@@ -320,11 +320,17 @@ visibility restrictions, so test the gate with a non-administrator account.
 The browser dashboard is part of the bot process and is **off by default**. It
 lets server owners edit rules, panel art, moderation thresholds, warning
 escalation, and ticket forms/priorities. Staff can review moderation cases,
-tickets, appeals, response times, private case/ticket notes, and opt-in searchable transcripts. Members
+tickets, appeals, response times, private case/ticket notes, linked Discord-message
+evidence for cases, and opt-in searchable transcripts. Members
 can submit one open appeal at a time. Discord sign-in and current server
 permissions are checked on every request; only owners or people with Manage
 Server can change settings. Raid detection and warning escalation are off until
 an owner explicitly enables them.
+Owners can also view existing Discord AutoMod rules and explicitly toggle them
+on or off from the dashboard. Editing rule keywords, exemptions, and actions
+remains in Discord Server Settings > AutoMod; the bot needs Manage Server for
+rule access. Staff can attach Discord message links from the same server as
+structured evidence on moderation cases.
 Owners can set a first-response target; overdue tickets alert the configured
 `logs` channel once, without pinging members. A transcript retention period
 purges expired locally searchable transcripts every ten minutes. Zero disables
