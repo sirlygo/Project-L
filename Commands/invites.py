@@ -7,14 +7,14 @@ import random
 import requests
 import asyncio
 from logFunction import print_interaction_info
-from config_loader import load_config
+from config_loader import ConfigError, load_config
+from guild_config import active_guild_configs, guild_database_path, load_active_guild_config
 
 
 class Invites(commands.Cog):
     def __init__(self, client):
         self.client = client
         self.invites = {}
-        self.guild_id = load_config()["guildId"]
         self.refresh_invites.start()
 
     def cog_unload(self):
@@ -22,22 +22,29 @@ class Invites(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def refresh_invites(self):
-        guild = self.client.get_guild(self.guild_id)
-        if guild is None:
-            return
-        try:
-            self.invites[guild.id] = await guild.invites()
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"Could not refresh invites for guild {guild.id}: {exc}")
+        for guild, _config in active_guild_configs(self.client.guilds):
+            try:
+                self.invites[guild.id] = await guild.invites()
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"Could not refresh invites for guild {guild.id}: {exc}")
 
     @refresh_invites.before_loop
     async def before_refresh_invites(self):
         await self.client.wait_until_ready()
 
 
-    def connect(self):
+    def connect(self, guild_id):
         try:
-            conn = sqlite3.connect(f"Data/users.db")
+            primary_id = load_config()["guildId"]
+            path = guild_database_path(guild_id, "users.db", primary_guild_id=primary_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(path)
+            if guild_id != primary_id:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS users ("
+                    "userid INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0, "
+                    "invited INTEGER DEFAULT 0, left INTEGER DEFAULT 0, voice INTEGER DEFAULT 0)"
+                )
             curs = conn.cursor()
             return conn, curs
         except Exception as exc:
@@ -52,11 +59,13 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
-        if member.guild.id != self.guild_id:
+        try:
+            load_active_guild_config(member.guild.id)
+        except ConfigError:
             return
         invs_after = await member.guild.invites()
         self.invites[member.guild.id] = invs_after
-        result = Invites.connect(self)
+        result = Invites.connect(self, member.guild.id)
         if result is None:
             return
 
@@ -79,12 +88,12 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        if member.guild.id != self.guild_id:
+        try:
+            config = load_active_guild_config(member.guild.id)
+        except ConfigError:
             return
         try:
-            with open("Data/config.json", "r", encoding="utf-8") as f:
-                config = json.load(f)
-                welcomeid = config["invitechannel"]
+            welcomeid = config["invitechannel"]
 
             if member.avatar is None:
                 userpfp = member.default_avatar
@@ -93,7 +102,7 @@ class Invites(commands.Cog):
 
             channel = self.client.get_channel(welcomeid)
 
-            result = Invites.connect(self)
+            result = Invites.connect(self, member.guild.id)
             if result is None:
                 invs_after = await member.guild.invites()
                 self.invites[member.guild.id] = invs_after
@@ -162,7 +171,7 @@ class Invites(commands.Cog):
     async def invites(self, interaction: discord.Interaction):
         print_interaction_info(interaction)
         userid = interaction.user.id
-        result = Invites.connect(self)
+        result = Invites.connect(self, interaction.guild_id)
         if result is None:
             return
 

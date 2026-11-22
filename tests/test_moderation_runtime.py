@@ -33,6 +33,7 @@ def make_interaction(*, user_id=1, guild=None, response_done=False):
     )
     return SimpleNamespace(
         id=987654,
+        guild_id=1,
         user=SimpleNamespace(id=user_id, mention=f"<@{user_id}>"),
         guild=guild,
         response=response,
@@ -102,6 +103,7 @@ class ModerationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("Commands.moderation.print_interaction_info"),
+            patch("Commands.moderation.warning_path", return_value="Data/users.db"),
             patch(
                 "Commands.moderation.sqlite3.connect",
                 side_effect=sqlite3.OperationalError("database unavailable"),
@@ -129,6 +131,7 @@ class ModerationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("Commands.moderation.print_interaction_info"),
+            patch("Commands.moderation.warning_path", return_value="Data/users.db"),
             patch("Commands.moderation.sqlite3.connect", return_value=connection),
         ):
             await ModsCommand.warnings.callback(self.cog, interaction, member)

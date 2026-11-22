@@ -8,7 +8,8 @@ import time
 import discord
 from discord.ext import commands
 
-from config_loader import load_config
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 from dashboard_store import safe_record_case
 
 INVITE_LINK = re.compile(r"https?://(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/[\w-]+", re.I)
@@ -26,8 +27,9 @@ class AutoMod(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.guild is None or message.author.bot:
             return
-        config = load_config()
-        if message.guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(message.guild.id)
+        except ConfigError:
             return
         settings = config.get("moderation") or {}
         if not any(settings.get(key) for key in ("antiSpamEnabled", "blockInviteLinks")):
@@ -64,8 +66,9 @@ class AutoMod(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        config = load_config()
-        if member.guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(member.guild.id)
+        except ConfigError:
             return
         settings = config.get("moderation") or {}
         if not settings.get("raidEnabled") or member.bot:

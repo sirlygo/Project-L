@@ -3,6 +3,8 @@ import discord
 from discord.ext import commands
 import asyncio
 import datetime
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 
 print("[!] Loading logging extension")
 
@@ -73,12 +75,13 @@ class LogsCommand(commands.Cog):
         content=None,
         media_urls=None,  # Add a parameter for media URLs
     ):
+        if guild is None:
+            return
         try:
-            with open("Data/config.json", "r", encoding="utf-8") as f:
-                config = json.load(f)
+            config = load_active_guild_config(guild.id)
             logs = config["logChannelIds"]
             channelid = logs.get(configName)
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        except (ConfigError, KeyError, TypeError) as exc:
             print(f"[!] Could not load logging configuration: {exc}")
             return
 
@@ -91,7 +94,7 @@ class LogsCommand(commands.Cog):
                 media_urls=media_urls,
             )
 
-        if guild is None or guild.id != config["guildId"] or not channelid:
+        if not channelid:
             return
 
         logschannel = self.client.get_channel(channelid)

@@ -6,7 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config_loader import load_config
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 from dashboard_store import cancel_announcement, schedule_announcement
 
 
@@ -21,8 +22,13 @@ class Scheduling(commands.Cog):
         minutes_from_now: app_commands.Range[int, 1, 525600],
         message: app_commands.Range[str, 1, 1800],
     ):
-        if interaction.guild_id != load_config()["guildId"] or channel.guild.id != interaction.guild_id:
+        try:
+            load_active_guild_config(interaction.guild_id)
+        except ConfigError:
             await interaction.response.send_message("This server is not configured for Project L.", ephemeral=True)
+            return
+        if channel.guild.id != interaction.guild_id:
+            await interaction.response.send_message("Select a channel in this server.", ephemeral=True)
             return
         if not channel.permissions_for(interaction.guild.me).send_messages:
             await interaction.response.send_message("I cannot send messages in that channel.", ephemeral=True)
@@ -39,7 +45,9 @@ class Scheduling(commands.Cog):
     @app_commands.command(name="cancelannouncement", description="Cancel a pending announcement")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def cancel_announcement_command(self, interaction: discord.Interaction, announcement_id: int):
-        if interaction.guild_id != load_config()["guildId"]:
+        try:
+            load_active_guild_config(interaction.guild_id)
+        except ConfigError:
             await interaction.response.send_message("This server is not configured for Project L.", ephemeral=True)
             return
         cancelled = cancel_announcement(interaction.guild_id, announcement_id)

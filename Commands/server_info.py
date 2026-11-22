@@ -3,7 +3,8 @@
 import discord
 from discord.ext import commands
 
-from config_loader import load_config
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 from discord_provisioning import build_bot_invite_url
 
 
@@ -31,8 +32,9 @@ class ServerInfo(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.guild is None or message.author.bot or self.bot.user not in message.mentions:
             return
-        config = load_config()
-        if message.guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(message.guild.id)
+        except ConfigError:
             return
         answer = answer_question(message.content, config["client_id"], 0)
         if answer:
@@ -45,8 +47,9 @@ class ServerInfo(commands.Cog):
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if before.premium_since is not None or after.premium_since is None:
             return
-        config = load_config()
-        if after.guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(after.guild.id)
+        except ConfigError:
             return
         channel_id = config.get("managedResources", {}).get("boostsChannel", 0)
         channel = after.guild.get_channel(channel_id)

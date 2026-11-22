@@ -8,7 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config_loader import BASE_DIR, load_config
+from config_loader import BASE_DIR, ConfigError
+from guild_config import active_guild_configs, load_active_guild_config
 
 DB_PATH = BASE_DIR / "Data" / "levels.db"
 MILESTONES = (5, 15, 30)
@@ -113,8 +114,9 @@ class Leveling(commands.Cog):
             return
         if message.content.startswith(("/", "!")):
             return
-        config = load_config()
-        if message.guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(message.guild.id)
+        except ConfigError:
             return
         milestone = add_xp(message.guild.id, message.author.id, "chat", 20)
         if milestone:
@@ -122,24 +124,21 @@ class Leveling(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def voice_xp_tick(self):
-        config = load_config()
-        guild = self.bot.get_guild(config["guildId"])
-        if guild is None:
-            return
-        for channel in guild.voice_channels:
-            eligible = [
-                member for member in channel.members
-                if not member.bot and member.voice and not (
-                    member.voice.self_mute or member.voice.mute
-                    or member.voice.self_deaf or member.voice.deaf
-                ) and channel != guild.afk_channel
-            ]
-            if len(eligible) < 2:
-                continue
-            for member in eligible:
-                milestone = add_xp(guild.id, member.id, "voice", 10)
-                if milestone:
-                    await self.announce(member, "voice", milestone, config)
+        for guild, config in active_guild_configs(self.bot.guilds):
+            for channel in guild.voice_channels:
+                eligible = [
+                    member for member in channel.members
+                    if not member.bot and member.voice and not (
+                        member.voice.self_mute or member.voice.mute
+                        or member.voice.self_deaf or member.voice.deaf
+                    ) and channel != guild.afk_channel
+                ]
+                if len(eligible) < 2:
+                    continue
+                for member in eligible:
+                    milestone = add_xp(guild.id, member.id, "voice", 10)
+                    if milestone:
+                        await self.announce(member, "voice", milestone, config)
 
     @voice_xp_tick.before_loop
     async def before_voice_xp_tick(self):
@@ -147,8 +146,9 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="rank", description="Show your chat and voice XP levels")
     async def rank(self, interaction: discord.Interaction):
-        config = load_config()
-        if interaction.guild_id != config["guildId"]:
+        try:
+            config = load_active_guild_config(interaction.guild_id)
+        except ConfigError:
             await interaction.response.send_message("This command is only available in the configured server.", ephemeral=True)
             return
         chat, voice = member_xp(interaction.guild_id, interaction.user.id)

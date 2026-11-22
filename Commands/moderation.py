@@ -12,12 +12,27 @@ from contextlib import closing
 from logFunction import print_interaction_info
 from dashboard_store import safe_record_case
 from config_loader import load_config
+from guild_config import guild_database_path, load_active_guild_config
 from moderation_policy import escalation_for_warning_count
 
 
 WARNINGS_DESCRIPTION_LIMIT = 3900
 MAX_PURGE_MESSAGES = 1000
 PURGE_CONFIRM_THRESHOLD = 100
+
+
+def warning_path(guild_id):
+    primary_id = load_config()["guildId"]
+    path = guild_database_path(guild_id, "users.db", primary_guild_id=primary_id)
+    if guild_id != primary_id:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS warnings ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, userid INTEGER NOT NULL, "
+                "reason TEXT, warner INTEGER, created_at INTEGER, expires_at INTEGER)"
+            )
+    return path
 
 
 def purge_requires_confirmation(amount: int) -> bool:
@@ -130,15 +145,6 @@ class ModsCommand(commands.Cog):
     def __init__(self, client):
         self.client = client
 
-    def connect(self):
-        try:
-            conn = sqlite3.connect(f"Data/users.db")
-            curs = conn.cursor()
-            return conn, curs
-        except Exception as exc:
-            print(exc)
-            return None
-
     @app_commands.command(name="steal", description="Steal an emoji")
     @app_commands.checks.has_permissions(manage_expressions=True)
     async def steal(self, interaction: discord.Interaction):
@@ -184,7 +190,7 @@ class ModsCommand(commands.Cog):
 
         userid = member.id
         try:
-            with closing(sqlite3.connect("Data/users.db")) as conn:
+            with closing(sqlite3.connect(warning_path(interaction.guild_id))) as conn:
                 records = conn.execute(
                     "SELECT reason, warner FROM warnings WHERE userid = ? "
                     "AND (expires_at IS NULL OR expires_at>?) ORDER BY id",
@@ -287,7 +293,7 @@ class ModsCommand(commands.Cog):
                     return
 
                 try:
-                    with closing(sqlite3.connect("Data/users.db")) as conn:
+                    with closing(sqlite3.connect(warning_path(interaction.guild_id))) as conn:
                         conn.execute("DELETE FROM warnings WHERE userid = ?", (userid,))
                         conn.commit()
                 except sqlite3.Error as exc:
@@ -345,7 +351,7 @@ class ModsCommand(commands.Cog):
             reason = "No reason provided"
 
         try:
-            with closing(sqlite3.connect("Data/users.db")) as conn:
+            with closing(sqlite3.connect(warning_path(interaction.guild_id))) as conn:
                 now = int(time.time())
                 expires_at = now + expires_days * 86400 if expires_days else None
                 cursor = conn.execute(
@@ -367,7 +373,7 @@ class ModsCommand(commands.Cog):
             return
 
         safe_record_case(interaction.guild_id, userid, interaction.user.id, "warn", reason)
-        moderation_settings = load_config().get("moderation") or {}
+        moderation_settings = load_active_guild_config(interaction.guild_id).get("moderation") or {}
         if moderation_settings.get("warningEscalationEnabled"):
             try:
                 step = escalation_for_warning_count(
@@ -407,7 +413,7 @@ class ModsCommand(commands.Cog):
 
                 await inter.response.defer()
                 try:
-                    with closing(sqlite3.connect("Data/users.db")) as conn:
+                    with closing(sqlite3.connect(warning_path(interaction.guild_id))) as conn:
                         conn.execute("DELETE FROM warnings WHERE id = ?", (warning_id,))
                         conn.commit()
                     await inter.message.delete()

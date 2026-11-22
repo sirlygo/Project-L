@@ -4,7 +4,8 @@ import sqlite3
 
 import discord
 
-from config_loader import BASE_DIR, load_config
+from config_loader import BASE_DIR, ConfigError, load_config
+from guild_config import load_active_guild_config
 from Commands.public_voice import clean_room_name
 
 DB_PATH = BASE_DIR / "Data" / "users.db"
@@ -43,9 +44,10 @@ class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        config = load_config()
         guild = interaction.guild
-        if guild is None or guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(guild.id if guild else None)
+        except ConfigError:
             await interaction.response.send_message("Use this in the configured server.", ephemeral=True)
             return
         member = interaction.user
@@ -67,7 +69,7 @@ class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
         with sqlite3.connect(DB_PATH) as db:
-            ensure_private_voice_table(db, config["guildId"])
+            ensure_private_voice_table(db, load_config()["guildId"])
             existing = private_room_for_owner(db, guild.id, member.id)
         if existing and existing[0]:
             channel = guild.get_channel(int(existing[0]))
@@ -87,14 +89,15 @@ class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat
                 connect=True, speak=True,
             )
             with sqlite3.connect(DB_PATH) as db:
-                ensure_private_voice_table(db, config["guildId"])
+                ensure_private_voice_table(db, load_config()["guildId"])
                 db.execute(
                     "INSERT INTO private_voice_rooms(guild_id,owner_id,channel_id) VALUES(?,?,?) "
                     "ON CONFLICT(guild_id,owner_id) DO UPDATE SET channel_id=excluded.channel_id",
                     (guild.id, member.id, room.id),
                 )
                 # Keep the primary server's legacy field synchronized for older releases.
-                db.execute("UPDATE users SET voice=? WHERE userid=?", (room.id, member.id))
+                if guild.id == load_config()["guildId"]:
+                    db.execute("UPDATE users SET voice=? WHERE userid=?", (room.id, member.id))
         except (discord.Forbidden, discord.HTTPException, sqlite3.Error) as exc:
             if room is not None:
                 try:

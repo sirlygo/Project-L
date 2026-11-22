@@ -7,7 +7,8 @@ from contextlib import closing
 import discord
 from discord.ext import commands, tasks
 
-from config_loader import BASE_DIR, load_config
+from config_loader import BASE_DIR, ConfigError, load_config
+from guild_config import load_active_guild_config
 
 DB_PATH = BASE_DIR / "Data" / "users.db"
 
@@ -73,8 +74,9 @@ class PublicVoiceNameModal(discord.ui.Modal, title="Create a public voice chat")
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        config = load_config()
-        if interaction.guild is None or interaction.guild_id != config["guildId"]:
+        try:
+            config = load_active_guild_config(interaction.guild_id)
+        except ConfigError:
             await interaction.response.send_message("Use this in the configured server.", ephemeral=True)
             return
         member = interaction.user

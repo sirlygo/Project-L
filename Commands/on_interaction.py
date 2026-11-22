@@ -7,6 +7,8 @@ import discord
 from discord.ext import commands
 
 from config_loader import load_config, load_role_ids
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 from self_roles import ROLE_GROUPS, managed_role_ids
 from Commands.public_voice import PublicVoiceNameModal
 from Commands.private_voice import PrivateVoiceNameModal
@@ -187,19 +189,17 @@ class OnInteractionEvent(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        config = load_config()
+        if not interaction.data or "custom_id" not in interaction.data or interaction.guild is None:
+            return
+        try:
+            config = load_active_guild_config(interaction.guild_id)
+        except ConfigError:
+            return
         transcriptsid = config["transcripts"]
         verifiedrole = config["verified"]
         voicecategory = config["voicecategory"]
         streammerrole = config["streamRole"]
 
-
-        if not interaction.data or "custom_id" not in interaction.data:
-            return
-        elif interaction.guild is None:
-            return
-        elif interaction.guild_id != config["guildId"]:
-            return
 
         if interaction.user.avatar is None:
             userpfp = interaction.user.default_avatar

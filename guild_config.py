@@ -11,6 +11,8 @@ from config_loader import BASE_DIR, ConfigError, load_config
 
 GUILD_CONFIG_ROOT = BASE_DIR / "Data" / "guilds"
 TENANT_DATABASES = {"users.db", "user.db", "levels.db", "dashboard.db"}
+# Keep secondary guilds disabled until every event handler and store is migrated.
+MULTI_GUILD_READY = False
 
 
 def guild_config_path(guild_id: int, *, root: Path = GUILD_CONFIG_ROOT) -> Path:
@@ -36,6 +38,24 @@ def load_guild_config(guild_id: int, *, root: Path = GUILD_CONFIG_ROOT,
     for key in ("token", "twClientId", "twClientsecret"):
         config[key] = primary[key]
     return config
+
+
+def load_active_guild_config(guild_id: int, *, primary_config=None) -> dict:
+    primary = primary_config if primary_config is not None else load_config()
+    if guild_id == primary["guildId"]:
+        return primary
+    if not MULTI_GUILD_READY:
+        raise ConfigError("Additional servers are not enabled in this release.")
+    return load_guild_config(guild_id, primary_config=primary)
+
+
+def active_guild_configs(guilds, *, primary_config=None):
+    primary = primary_config if primary_config is not None else load_config()
+    for guild in guilds:
+        try:
+            yield guild, load_active_guild_config(guild.id, primary_config=primary)
+        except ConfigError:
+            continue
 
 
 def guild_database_path(guild_id: int, database: str, *, root: Path = GUILD_CONFIG_ROOT,

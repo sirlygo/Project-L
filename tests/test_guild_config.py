@@ -2,9 +2,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from config_loader import ConfigError
-from guild_config import guild_config_path, guild_database_path, load_guild_config
+from guild_config import (
+    active_guild_configs, guild_config_path, guild_database_path,
+    load_active_guild_config, load_guild_config,
+)
 
 
 EXAMPLE = json.loads((Path(__file__).resolve().parents[1] / "Data" / "config.example.json").read_text())
@@ -16,6 +20,12 @@ class GuildConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.assertIs(load_guild_config(1, root=root, primary_config=primary), primary)
+            self.assertIs(load_active_guild_config(1, primary_config=primary), primary)
+            with self.assertRaisesRegex(ConfigError, "not enabled"):
+                load_active_guild_config(2, primary_config=primary)
+            active = list(active_guild_configs([SimpleNamespace(id=1), SimpleNamespace(id=2)],
+                                               primary_config=primary))
+            self.assertEqual([guild.id for guild, _ in active], [1])
             with self.assertRaises(ConfigError):
                 load_guild_config(2, root=root, primary_config=primary)
 
