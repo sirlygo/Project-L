@@ -1,6 +1,6 @@
 import unittest
 
-from live_smoke_test import message_component_ids, missing_panel_names
+from live_smoke_test import has_bot_panel, message_component_ids, missing_panel_names
 
 
 def message(author_id, *custom_ids):
@@ -25,7 +25,6 @@ class LiveSmokePanelTests(unittest.TestCase):
 
     def test_all_standard_panels_are_detected(self):
         messages = [
-            message(7, "verify"),
             message(7, "voicechannel"),
             message(7, "ticket_help", "ticket_suggestions", "ticket_report"),
         ]
@@ -49,7 +48,15 @@ class LiveSmokePanelTests(unittest.TestCase):
             bot_user_id=7,
             reaction_roles_configured=True,
         )
-        self.assertEqual(missing, ["verification", "reaction roles"])
+        self.assertEqual(missing, ["reaction roles"])
+
+    def test_verify_panel_is_checked_in_the_correct_channel(self):
+        self.assertTrue(
+            has_bot_panel([message(7, "verify")], bot_user_id=7, required=frozenset({"verify"}))
+        )
+        self.assertFalse(
+            has_bot_panel([message(99, "verify")], bot_user_id=7, required=frozenset({"verify"}))
+        )
 
 
 if __name__ == "__main__":

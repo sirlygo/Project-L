@@ -21,10 +21,10 @@ from discord_validation import (
 )
 
 EXPECTED_PANELS = {
-    "verification": frozenset({"verify"}),
     "private voice": frozenset({"voicechannel"}),
     "tickets": frozenset({"ticket_help", "ticket_suggestions", "ticket_report"}),
 }
+VERIFY_COMPONENTS = frozenset({"verify"})
 
 
 def message_component_ids(message: Mapping[str, Any]) -> set[str]:
@@ -37,6 +37,16 @@ def message_component_ids(message: Mapping[str, Any]) -> set[str]:
             if isinstance(component, Mapping) and component.get("custom_id"):
                 result.add(str(component["custom_id"]))
     return result
+
+
+def has_bot_panel(
+    messages: list[Mapping[str, Any]], *, bot_user_id: int, required: frozenset[str]
+) -> bool:
+    return any(
+        int((message.get("author") or {}).get("id", 0) or 0) == bot_user_id
+        and required.issubset(message_component_ids(message))
+        for message in messages
+    )
 
 
 def missing_panel_names(
@@ -125,11 +135,23 @@ def run_live_smoke_test(*, timeout: float = 15) -> tuple[list[str], list[str]]:
     messages = _get_json(
         f"channels/{panel_channel_id}/messages?limit=100", token, timeout
     )
-    if not isinstance(bot_user, Mapping) or not isinstance(messages, list):
+    welcome_messages = _get_json(
+        f"channels/{int(config['welcome'])}/messages?limit=100", token, timeout
+    )
+    if (
+        not isinstance(bot_user, Mapping)
+        or not isinstance(messages, list)
+        or not isinstance(welcome_messages, list)
+    ):
         raise DiscordValidationError("Discord returned an unexpected panel response.")
+    bot_user_id = int(bot_user["id"])
+    if not has_bot_panel(welcome_messages, bot_user_id=bot_user_id, required=VERIFY_COMPONENTS):
+        errors.append("verification panel is missing from the welcome channel")
+    if has_bot_panel(messages, bot_user_id=bot_user_id, required=VERIFY_COMPONENTS):
+        errors.append("verification panel is still in the self-roles/panels channel")
     missing = missing_panel_names(
         messages,
-        bot_user_id=int(bot_user["id"]),
+        bot_user_id=bot_user_id,
         reaction_roles_configured=bool(role_ids),
     )
     errors.extend(f"{name} panel is missing" for name in missing)
