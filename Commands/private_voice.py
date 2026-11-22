@@ -10,6 +10,32 @@ from Commands.public_voice import clean_room_name
 DB_PATH = BASE_DIR / "Data" / "users.db"
 
 
+def ensure_private_voice_table(db, primary_guild_id):
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS private_voice_rooms ("
+        "guild_id INTEGER NOT NULL, owner_id INTEGER NOT NULL, "
+        "channel_id INTEGER NOT NULL, PRIMARY KEY(guild_id,owner_id))"
+    )
+    has_legacy = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if has_legacy:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+        if "voice" in columns:
+            db.execute(
+                "INSERT OR IGNORE INTO private_voice_rooms(guild_id,owner_id,channel_id) "
+                "SELECT ?,userid,voice FROM users WHERE voice IS NOT NULL AND voice>0",
+                (primary_guild_id,),
+            )
+
+
+def private_room_for_owner(db, guild_id, owner_id):
+    return db.execute(
+        "SELECT channel_id FROM private_voice_rooms WHERE guild_id=? AND owner_id=?",
+        (guild_id, owner_id),
+    ).fetchone()
+
+
 class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat"):
     room_name = discord.ui.TextInput(
         label="Room name", placeholder="My private game room", max_length=80,
@@ -41,7 +67,8 @@ class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
         with sqlite3.connect(DB_PATH) as db:
-            existing = db.execute("SELECT voice FROM users WHERE userid=?", (member.id,)).fetchone()
+            ensure_private_voice_table(db, config["guildId"])
+            existing = private_room_for_owner(db, guild.id, member.id)
         if existing and existing[0]:
             channel = guild.get_channel(int(existing[0]))
             if channel is not None:
@@ -60,10 +87,13 @@ class PrivateVoiceNameModal(discord.ui.Modal, title="Create a private voice chat
                 connect=True, speak=True,
             )
             with sqlite3.connect(DB_PATH) as db:
+                ensure_private_voice_table(db, config["guildId"])
                 db.execute(
-                    "INSERT OR IGNORE INTO users(userid,balance,invited,left) VALUES(?,0,0,0)",
-                    (member.id,),
+                    "INSERT INTO private_voice_rooms(guild_id,owner_id,channel_id) VALUES(?,?,?) "
+                    "ON CONFLICT(guild_id,owner_id) DO UPDATE SET channel_id=excluded.channel_id",
+                    (guild.id, member.id, room.id),
                 )
+                # Keep the primary server's legacy field synchronized for older releases.
                 db.execute("UPDATE users SET voice=? WHERE userid=?", (room.id, member.id))
         except (discord.Forbidden, discord.HTTPException, sqlite3.Error) as exc:
             if room is not None:
