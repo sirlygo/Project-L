@@ -20,7 +20,8 @@ from aiohttp import web
 from PIL import Image
 
 from branding import ART_KEYS, DEFAULT_RULES
-from config_loader import BASE_DIR, CONFIG_PATH, load_config
+from config_loader import BASE_DIR, CONFIG_PATH, ConfigError, load_config
+from guild_config import active_guild_configs, guild_config_path, load_active_guild_config
 from dashboard_store import (
     add_case_evidence, add_staff_note, case_exists, get_appeal, get_config_snapshot,
     get_ticket, get_transcript, list_appeals, list_case_evidence, list_cases, list_config_history,
@@ -223,8 +224,13 @@ class Dashboard:
         user_id = verify_session(token, self.options["session_secret"])
         if user_id is None:
             return None
-        config = load_config()
-        guild = self.bot.get_guild(config["guildId"])
+        requested = request.query.get("guild_id", "")
+        try:
+            guild_id = int(requested) if requested else load_config()["guildId"]
+            load_active_guild_config(guild_id)
+        except (ValueError, ConfigError):
+            return {"user_id": user_id, "staff": False, "owner": False, "guild": None}
+        guild = self.bot.get_guild(guild_id)
         if guild is None:
             return {"user_id": user_id, "staff": False, "owner": False, "guild": None}
         member = guild.get_member(user_id)
@@ -244,18 +250,48 @@ class Dashboard:
         identity = await self._identity(request)
         if identity is None:
             raise web.HTTPUnauthorized(text="Sign in with Discord first.")
-        if owner and not identity["owner"] or staff and not identity["staff"]:
+        if (identity["guild"] is None or (owner and not identity["owner"])
+                or (staff and not identity["staff"])):
             raise web.HTTPForbidden(text="This action requires server staff permissions.")
         return identity
+
+    @staticmethod
+    def _guild_config_and_path(identity):
+        guild_id = identity["guild"].id
+        config = load_active_guild_config(guild_id)
+        primary_id = load_config()["guildId"]
+        path = CONFIG_PATH if guild_id == primary_id else guild_config_path(guild_id)
+        return config, path
+
+    @staticmethod
+    def _write_guild_config(config, path):
+        saved = dict(config)
+        if path != CONFIG_PATH:
+            # Secondary files must not copy application-wide credentials.
+            for key in ("token", "twClientId", "twClientsecret"):
+                saved[key] = ""
+        _write_json_atomic(path, saved)
 
     async def session_info(self, request):
         identity = await self._identity(request)
         if identity is None:
             return web.json_response({"authenticated": False})
+        available = []
+        for guild, _config in active_guild_configs(getattr(self.bot, "guilds", [])):
+            member = guild.get_member(identity["user_id"])
+            if member is None:
+                try:
+                    member = await guild.fetch_member(identity["user_id"])
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    continue
+            if member is not None:
+                available.append({"id": str(guild.id), "name": guild.name})
         return web.json_response({
             "authenticated": True, "userId": str(identity["user_id"]),
             "staff": identity["staff"], "owner": identity["owner"],
             "guildName": identity["guild"].name if identity["guild"] else "Project L",
+            "guildId": str(identity["guild"].id) if identity["guild"] else "",
+            "availableGuilds": available,
             "csrf": csrf_for_session(request.cookies["pl_session"], self.options["session_secret"]),
         })
 
@@ -277,7 +313,7 @@ class Dashboard:
         return web.json_response({
             "botConnected": not self.bot.is_closed(),
             "guildAvailable": identity["guild"] is not None,
-            "configuredGuildId": str(load_config()["guildId"]),
+            "configuredGuildId": str(identity["guild"].id),
             "dashboardEnabled": True,
         })
 
@@ -326,15 +362,15 @@ class Dashboard:
         if set(snapshot) != {"branding", "moderation", "ticketWorkspace"}:
             return _json_error("Snapshot is incomplete.", 409)
         async with self.lock:
-            config = load_config()
+            config, config_path = self._guild_config_and_path(identity)
             record_config_snapshot(config["guildId"], identity["user_id"], {
                 key: config.get(key) for key in snapshot
             })
             for key, value in snapshot.items():
                 config[key] = value
-            _write_json_atomic(CONFIG_PATH, config)
+            self._write_guild_config(config, config_path)
         from channel_headers import ensure_channel_headers
-        await ensure_channel_headers(self.bot)
+        await ensure_channel_headers(self.bot, config)
         return web.json_response({"restored": True})
 
     async def get_notes(self, request):
@@ -368,8 +404,8 @@ class Dashboard:
         return web.json_response({"id": note_id}, status=201)
 
     async def get_settings(self, request):
-        await self._require(request, owner=True)
-        config = load_config()
+        identity = await self._require(request, owner=True)
+        config, _config_path = self._guild_config_and_path(identity)
         return web.json_response({
             "rulesText": (config.get("branding") or {}).get("rulesText") or DEFAULT_RULES,
             "art": (config.get("branding") or {}).get("art") or {},
@@ -378,7 +414,8 @@ class Dashboard:
         })
 
     async def put_settings(self, request):
-        await self._require(request, owner=True)
+        identity = await self._require(request, owner=True)
+        current_config, _config_path = self._guild_config_and_path(identity)
         try:
             payload = await request.json()
             if not isinstance(payload, dict):
@@ -415,14 +452,14 @@ class Dashboard:
             workspace = {
                 "priorities": priorities,
                 "searchableTranscripts": bool(tickets.get("searchableTranscripts", False)),
-                "responseTargetMinutes": max(0, min(10080, int(tickets.get("responseTargetMinutes", (load_config().get("ticketWorkspace") or {}).get("responseTargetMinutes", 0))))),
-                "transcriptRetentionDays": max(0, min(365, int(tickets.get("transcriptRetentionDays", (load_config().get("ticketWorkspace") or {}).get("transcriptRetentionDays", 0))))),
+                "responseTargetMinutes": max(0, min(10080, int(tickets.get("responseTargetMinutes", (current_config.get("ticketWorkspace") or {}).get("responseTargetMinutes", 0))))),
+                "transcriptRetentionDays": max(0, min(365, int(tickets.get("transcriptRetentionDays", (current_config.get("ticketWorkspace") or {}).get("transcriptRetentionDays", 0))))),
                 "forms": validate_forms(tickets.get("forms") or DEFAULT_FORMS),
             }
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             return _json_error(str(exc))
         async with self.lock:
-            config = load_config()
+            config, config_path = self._guild_config_and_path(identity)
             record_config_snapshot(config["guildId"], (await self._identity(request))["user_id"], {
                 "branding": config.get("branding"), "moderation": config.get("moderation"),
                 "ticketWorkspace": config.get("ticketWorkspace"),
@@ -430,13 +467,13 @@ class Dashboard:
             config.setdefault("branding", {})["rulesText"] = rules
             config["moderation"] = moderation
             config["ticketWorkspace"] = workspace
-            _write_json_atomic(CONFIG_PATH, config)
+            self._write_guild_config(config, config_path)
         from channel_headers import ensure_channel_headers
-        await ensure_channel_headers(self.bot)
+        await ensure_channel_headers(self.bot, config)
         return web.json_response({"saved": True})
 
     async def upload_art(self, request):
-        await self._require(request, owner=True)
+        identity = await self._require(request, owner=True)
         key = request.match_info["key"]
         if key not in ART_KEYS:
             return _json_error("Unknown artwork slot.", 404)
@@ -463,13 +500,13 @@ class Dashboard:
         if not target.exists():
             target.write_bytes(data)
         async with self.lock:
-            config = load_config()
+            config, config_path = self._guild_config_and_path(identity)
             config.setdefault("branding", {}).setdefault("art", {})[key] = target.relative_to(BASE_DIR).as_posix()
-            _write_json_atomic(CONFIG_PATH, config)
+            self._write_guild_config(config, config_path)
         from Commands.panels import ensure_automatic_panels
         from channel_headers import ensure_channel_headers
-        await ensure_automatic_panels(self.bot)
-        await ensure_channel_headers(self.bot)
+        await ensure_automatic_panels(self.bot, config)
+        await ensure_channel_headers(self.bot, config)
         return web.json_response({"saved": True, "path": target.relative_to(BASE_DIR).as_posix()})
 
     async def api_cases(self, request):
@@ -551,7 +588,7 @@ class Dashboard:
         try:
             channel_id = int(request.match_info["channel_id"])
             data = await request.json()
-            config = load_config()
+            config, _config_path = self._guild_config_and_path(identity)
             allowed = (config.get("ticketWorkspace") or {}).get("priorities") or ["low", "normal", "high", "urgent"]
             priority = data.get("priority")
             status = data.get("status")
@@ -635,7 +672,7 @@ class Dashboard:
             case_id = int(data["caseId"]) if data.get("caseId") else None
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             return _json_error(str(exc))
-        guild_id = load_config()["guildId"]
+        guild_id = identity["guild"].id
         try:
             appeal_id = submit_appeal(guild_id, identity["user_id"], message, case_id)
         except ValueError as exc:

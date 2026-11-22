@@ -13,6 +13,7 @@ from bot import (
     check_guild_giveaways, member_cleanup_date_path, read_last_date,
     reconcile_managed_guild, twitchloop, write_last_date,
 )
+from Commands.panels import ensure_automatic_panels
 
 
 class GiveawayIsolationTests(unittest.IsolatedAsyncioTestCase):
@@ -28,6 +29,13 @@ class GiveawayIsolationTests(unittest.IsolatedAsyncioTestCase):
             write_last_date(moment, path_two)
             self.assertEqual(read_last_date(path_two), moment)
             self.assertTrue(path_two.is_file())
+
+    async def test_panel_installation_rejects_foreign_channel_id(self):
+        guild = SimpleNamespace(id=1, get_channel=lambda _id: SimpleNamespace(guild=SimpleNamespace(id=2)))
+        client = SimpleNamespace(get_guild=lambda _id: guild, get_channel=lambda _id: None)
+        config = {"guildId": 1, "welcome": 20, "managedResources": {"panelsChannel": 10}}
+        report = await ensure_automatic_panels(client, config)
+        self.assertIn("panels channel belongs to another server", report.failed)
 
     async def test_foreign_channel_record_is_not_fetched(self):
         with tempfile.TemporaryDirectory() as directory:

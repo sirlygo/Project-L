@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,26 @@ EXAMPLE = json.loads((Path(__file__).resolve().parents[1] / "Data" / "config.exa
 
 
 class GuildConfigTests(unittest.TestCase):
+    def test_enabled_secondary_is_loaded_only_from_its_own_file(self):
+        primary = {**EXAMPLE, "guildId": 1, "client_id": 10, "token": "primary-secret"}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            secondary_path = guild_config_path(2, root=root)
+            secondary_path.parent.mkdir()
+            secondary = {**EXAMPLE, "guildId": 2, "client_id": 10, "token": ""}
+            secondary_path.write_text(json.dumps(secondary), encoding="utf-8")
+            with patch("guild_config.MULTI_GUILD_READY", True), \
+                 patch("guild_config.guild_config_path", side_effect=lambda guild_id, **_kwargs: root / str(guild_id) / "config.json"):
+                active = load_active_guild_config(2, primary_config=primary)
+                self.assertEqual(active["guildId"], 2)
+                self.assertEqual(active["token"], "primary-secret")
+                self.assertEqual(
+                    [guild.id for guild, _ in active_guild_configs(
+                        [SimpleNamespace(id=1), SimpleNamespace(id=2), SimpleNamespace(id=3)],
+                        primary_config=primary,
+                    )], [1, 2],
+                )
+
     def test_primary_is_unchanged_and_unknown_guild_fails_closed(self):
         primary = {**EXAMPLE, "guildId": 1, "client_id": 10, "token": "private"}
         with tempfile.TemporaryDirectory() as directory:

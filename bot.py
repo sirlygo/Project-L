@@ -212,7 +212,7 @@ async def update_stats():
             try:
                 channel = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
 
-                if channel:
+                if channel and getattr(getattr(channel, "guild", None), "id", guild.id) == guild.id:
                     stat_value = locals()[stat_key]
                     channel_name = channelName.get(
                         stat_key, "Unknown"
@@ -346,19 +346,8 @@ async def on_ready():
     for guild, _guild_config in active_guild_configs(client.guilds):
         restore_role_buttons_for_guild(guild)
 
-    if not client.twitch_state_loaded:
-        for guild, _guild_config in active_guild_configs(client.guilds):
-            try:
-                retained_streams = await asyncio.to_thread(
-                    load_notified_stream_ids, giveaway_path(guild.id),
-                )
-                keys = [(guild.id, stream_id) for stream_id in retained_streams]
-                notified.update(keys)
-                notified_order.extend(keys)
-                print(f"[OK] Restored {len(keys)} Twitch notification ID(s) in {guild.id}.")
-            except (OSError, sqlite3.Error) as exc:
-                print(f"[!] Could not restore Twitch notification state in {guild.id}: {exc}")
-        client.twitch_state_loaded = True
+    for guild, _guild_config in active_guild_configs(client.guilds):
+        await restore_twitch_state_for_guild(guild)
 
     for guild, guild_config in active_guild_configs(client.guilds):
         await reconcile_managed_guild(guild, guild_config)
@@ -477,6 +466,22 @@ def restore_role_buttons_for_guild(guild):
         except Exception as exc:
             print(f"[!] Could not restore a role button in {guild.id}: {exc}")
     client.restored_role_guilds.add(guild.id)
+
+
+async def restore_twitch_state_for_guild(guild):
+    if guild.id in client.twitch_state_loaded:
+        return
+    try:
+        retained_streams = await asyncio.to_thread(
+            load_notified_stream_ids, giveaway_path(guild.id),
+        )
+        keys = [(guild.id, stream_id) for stream_id in retained_streams]
+        notified.update(keys)
+        notified_order.extend(keys)
+        print(f"[OK] Restored {len(keys)} Twitch notification ID(s) in {guild.id}.")
+        client.twitch_state_loaded.add(guild.id)
+    except (OSError, sqlite3.Error) as exc:
+        print(f"[!] Could not restore Twitch notification state in {guild.id}: {exc}")
 
 
 @tasks.loop(seconds=30)
@@ -873,6 +878,7 @@ async def on_guild_join(guild: discord.Guild):
         return
     await client.tree.sync(guild=guild)
     restore_role_buttons_for_guild(guild)
+    await restore_twitch_state_for_guild(guild)
     await reconcile_managed_guild(guild, guild_config)
     if guild_config.get("kickMemberFunction") and guild_config.get("verified") and not check_members_task.is_running():
         check_members_task.start()
@@ -1086,7 +1092,7 @@ def configure_client_state():
     client.sticky = {}
     client.persistent_state_loaded = False
     client.restored_role_guilds = set()
-    client.twitch_state_loaded = False
+    client.twitch_state_loaded = set()
     client.panels_reconciled = set()
     client.headers_reconciled = set()
     client.layout_reconciled = set()

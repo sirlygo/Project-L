@@ -100,7 +100,7 @@ class Invites(commands.Cog):
             else:
                 userpfp = member.avatar
 
-            channel = self.client.get_channel(welcomeid)
+            channel = member.guild.get_channel(welcomeid)
 
             result = Invites.connect(self, member.guild.id)
             if result is None:

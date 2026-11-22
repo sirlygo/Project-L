@@ -544,6 +544,9 @@ async def ensure_automatic_panels(client, config=None) -> PanelInstallReport:
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             report.failed.append(f"panels channel is unavailable: {exc}")
             return report
+    if getattr(getattr(panels_channel, "guild", None), "id", config["guildId"]) != config["guildId"]:
+        report.failed.append("panels channel belongs to another server")
+        return report
 
     async def find_existing(channel):
         found = {}
@@ -570,6 +573,9 @@ async def ensure_automatic_panels(client, config=None) -> PanelInstallReport:
                 welcome_channel = await client.fetch_channel(welcome_id)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
                 report.failed.append(f"welcome channel is unavailable: {exc}")
+        if welcome_channel is not None and getattr(getattr(welcome_channel, "guild", None), "id", config["guildId"]) != config["guildId"]:
+            report.failed.append("welcome channel belongs to another server")
+            welcome_channel = None
         if welcome_channel is not None:
             try:
                 welcome_messages, _ = await find_existing(welcome_channel)
@@ -651,6 +657,9 @@ async def ensure_automatic_panels(client, config=None) -> PanelInstallReport:
         try:
             if target is None:
                 target = await client.fetch_channel(channel_id)
+            if getattr(getattr(target, "guild", None), "id", config["guildId"]) != config["guildId"]:
+                report.failed.append(f"{kind} channel belongs to another server")
+                continue
             old = panel_messages.get(kind) if target is not panels_channel else None
             if target is panels_channel:
                 existing = panel_messages.get(kind)

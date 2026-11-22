@@ -4,7 +4,8 @@ import sqlite3
 
 import discord
 
-from config_loader import load_config
+from config_loader import ConfigError
+from guild_config import load_active_guild_config
 from dashboard_store import create_ticket_record
 
 DEFAULT_FORMS = {
@@ -67,9 +68,10 @@ class TicketOpenModal(discord.ui.Modal):
             self.inputs.append(field)
 
     async def on_submit(self, interaction: discord.Interaction):
-        config = load_config()
         guild = interaction.guild
-        if guild is None or guild.id != config["guildId"]:
+        try:
+            config = load_active_guild_config(guild.id if guild else None)
+        except ConfigError:
             await interaction.response.send_message("Use this in the configured server.", ephemeral=True)
             return
         category = guild.get_channel(int(config["tickets"].get(f"category_{self.kind}", 0) or 0))

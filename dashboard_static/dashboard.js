@@ -1,10 +1,14 @@
 const state={session:null,settings:null,view:null};
+const requestedGuild=new URLSearchParams(location.search).get("guild_id");
+if(requestedGuild&&/^\d+$/.test(requestedGuild))localStorage.setItem("projectL.guildId",requestedGuild);
+const selectedGuild=()=>localStorage.getItem("projectL.guildId")||"";
+function guildPath(path){const id=selectedGuild();if(!id||!path.startsWith("/api/"))return path;return path+(path.includes("?")?"&":"?")+"guild_id="+encodeURIComponent(id)}
 const $=id=>document.getElementById(id);
 const artKeys=["verification","private_voice","public_voice","tickets","self_roles_header","self_roles_colors","self_roles_pronouns","self_roles_platform","self_roles_age","self_roles_pings","rules","announcements","giveaways","boosts","stream_alerts"];
 function ticketTarget(ticket){const minutes=Number(state.settings?.tickets?.responseTargetMinutes||0);if(!minutes||ticket.first_staff_response_at||ticket.status!=="open")return "";return Date.now()/1000>Number(ticket.created_at)+minutes*60?" · OVERDUE":" · Awaiting first reply"}
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(cls)node.className=cls;return node}
 function notice(message,error=false){const box=$("notice");box.textContent=message;box.classList.toggle("error",error)}
-async function api(path,options={}){const headers={...(options.headers||{})};if(options.body&&!(options.body instanceof FormData))headers["Content-Type"]="application/json";if(options.method&&options.method!=="GET")headers["X-CSRF-Token"]=state.session.csrf;const response=await fetch(path,{credentials:"same-origin",...options,headers});const data=await response.json().catch(()=>({error:"Unexpected server response."}));if(!response.ok)throw new Error(data.error||`Request failed (${response.status})`);if(data.memberNotification==="dm_unavailable"||data.assigneeNotification==="dm_unavailable")setTimeout(()=>notice("Saved, but Discord could not deliver the DM. Follow up manually.",true),100);return data}
+async function api(path,options={}){const headers={...(options.headers||{})};if(options.body&&!(options.body instanceof FormData))headers["Content-Type"]="application/json";if(options.method&&options.method!=="GET")headers["X-CSRF-Token"]=state.session.csrf;const response=await fetch(guildPath(path),{credentials:"same-origin",...options,headers});const data=await response.json().catch(()=>({error:"Unexpected server response."}));if(!response.ok)throw new Error(data.error||`Request failed (${response.status})`);if(data.memberNotification==="dm_unavailable"||data.assigneeNotification==="dm_unavailable")setTimeout(()=>notice("Saved, but Discord could not deliver the DM. Follow up manually.",true),100);return data}
 function show(view){state.view=view;document.querySelectorAll(".view").forEach(node=>node.hidden=node.id!==view+"-view");$("login-view").hidden=!!state.session?.authenticated;document.querySelectorAll("nav button").forEach(node=>node.classList.toggle("active",node.dataset.view===view));const titles={overview:"Overview",cases:"Moderation cases",tickets:"Ticket workspace",appeals:"Appeals",settings:"Customize Project L","my-appeal":"Submit an appeal"};$("page-title").textContent=titles[view]||"Project L Control Room";notice("");if(view==="overview")loadOverview();if(view==="cases")loadCases();if(view==="tickets")loadTickets();if(view==="appeals")loadAppeals();if(view==="settings")loadSettings()}
 function formatDate(unix){return new Date(Number(unix)*1000).toLocaleString()}
 async function loadOverview(){try{const data=await api("/api/overview");const cards=$("overview-cards");cards.replaceChildren();for(const [key,label] of [["members","Members"],["in_voice","In voice"],["open_tickets","Open tickets"],["open_appeals","Open appeals"],["cases","Moderation cases"],["tickets_last_7_days","Tickets · 7 days"],["cases_last_7_days","Cases · 7 days"],["avg_first_response_seconds","Avg first response (sec)"]]){const card=el("div",undefined,"stat-card");card.append(el("strong",data[key]??"—"),el("span",label));cards.append(card)}}catch(error){notice(error.message,true)}}
@@ -15,10 +19,41 @@ async function loadSettings(){try{const data=await api("/api/settings");state.se
 $("settings-form").addEventListener("submit",async event=>{event.preventDefault();try{const escalation=JSON.parse($("escalation-json").value);const forms=JSON.parse($("ticket-forms").value);const data={rulesText:$("rules-text").value,moderation:{antiSpamEnabled:$("anti-spam").checked,blockInviteLinks:$("block-invites").checked,spamLimit:Number($("spam-limit").value),spamWindowSeconds:Number($("spam-window").value),raidEnabled:$("raid-enabled").checked,raidJoinLimit:Number($("raid-limit").value),raidWindowSeconds:Number($("raid-window").value),raidAction:$("raid-action").value,warningEscalationEnabled:$("escalation-enabled").checked,warningEscalation:escalation},tickets:{priorities:$("ticket-priorities").value.split(",").map(s=>s.trim()).filter(Boolean),searchableTranscripts:$("searchable-transcripts").checked,forms}};await api("/api/settings",{method:"PUT",body:JSON.stringify(data)});notice("Settings saved. The bot is using the new rules and moderation policy.")}catch(error){notice(error.message,true)}});
 $("appeal-form").addEventListener("submit",async event=>{event.preventDefault();const form=new FormData(event.currentTarget);try{await api("/api/appeals",{method:"POST",body:JSON.stringify({caseId:form.get("caseId")||null,message:form.get("message")})});event.currentTarget.reset();notice("Your appeal was sent to staff.")}catch(error){notice(error.message,true)}});
 $("case-search").addEventListener("click",loadCases);$("ticket-refresh").addEventListener("click",loadTickets);$("ticket-filter").addEventListener("change",loadTickets);
-$("transcript-search").addEventListener("click",async()=>{const query=$("transcript-query").value.trim();if(query.length<2){notice("Enter at least two characters.",true);return}try{const data=await api("/api/transcripts?q="+encodeURIComponent(query));const list=$("transcript-results");list.replaceChildren();if(!data.results.length)list.append(el("p","No retained transcripts matched.","muted"));for(const result of data.results){const card=el("div",undefined,"card");card.append(el("h3",`Ticket #${result.channel_id}`),el("p",result.excerpt));const link=el("a","Download transcript");link.href=`/api/transcripts/${result.channel_id}`;link.className="primary-link";card.append(link);list.append(card)}}catch(error){notice(error.message,true)}});
+$("transcript-search").addEventListener("click",async()=>{const query=$("transcript-query").value.trim();if(query.length<2){notice("Enter at least two characters.",true);return}try{const data=await api("/api/transcripts?q="+encodeURIComponent(query));const list=$("transcript-results");list.replaceChildren();if(!data.results.length)list.append(el("p","No retained transcripts matched.","muted"));for(const result of data.results){const card=el("div",undefined,"card");card.append(el("h3",`Ticket #${result.channel_id}`),el("p",result.excerpt));const link=el("a","Download transcript");link.href=guildPath(`/api/transcripts/${result.channel_id}`);link.className="primary-link";card.append(link);list.append(card)}}catch(error){notice(error.message,true)}});
 $("logout").addEventListener("click",()=>{fetch("/logout",{method:"POST",credentials:"same-origin"}).finally(()=>location.reload())});
 document.querySelectorAll("nav button").forEach(button=>button.addEventListener("click",()=>show(button.dataset.view)));
-async function initialize(){try{state.session=await api("/api/session");if(!state.session.authenticated){$("connection").textContent="Sign in to continue";document.querySelectorAll("nav button").forEach(button=>button.hidden=true);$("login-view").hidden=false;return}$("connection").textContent="Connected to Discord";$("account-name").textContent=`User ${state.session.userId}`;$("logout").hidden=false;for(const button of document.querySelectorAll("nav button")){button.hidden=button.dataset.view==="settings"?!state.session.owner:button.dataset.view==="my-appeal"?false:!state.session.staff}if(state.session.staff)show("overview");else show("my-appeal")}catch(error){notice(error.message,true)}}initialize();
+async function initialize(){
+  try{
+    state.session=await api("/api/session");
+    if(!state.session.authenticated){
+      $("connection").textContent="Sign in to continue";
+      document.querySelectorAll("nav button").forEach(button=>button.hidden=true);
+      $("login-view").hidden=false;
+      return;
+    }
+    $("connection").textContent="Connected to Discord";
+    $("account-name").textContent=`User ${state.session.userId}`;
+    $("logout").hidden=false;
+    const picker=$("server-picker"),select=$("server-select");
+    select.replaceChildren();
+    for(const guild of state.session.availableGuilds||[]){
+      const option=el("option",guild.name);option.value=guild.id;select.append(option);
+    }
+    if(state.session.guildId&&!Array.from(select.options).some(option=>option.value===state.session.guildId)){
+      const option=el("option",state.session.guildName);option.value=state.session.guildId;select.append(option);
+    }
+    if(select.options.length){
+      select.value=state.session.guildId||selectedGuild()||select.options[0].value;
+      picker.hidden=false;
+      select.addEventListener("change",()=>{localStorage.setItem("projectL.guildId",select.value);location.href="/?guild_id="+encodeURIComponent(select.value)});
+    }
+    for(const button of document.querySelectorAll("nav button")){
+      button.hidden=button.dataset.view==="settings"?!state.session.owner:button.dataset.view==="my-appeal"?false:!state.session.staff;
+    }
+    if(state.session.staff)show("overview");else show("my-appeal");
+  }catch(error){notice(error.message,true)}
+}
+initialize();
 const policyForm=el("form",undefined,"card form-stack");
 policyForm.append(el("h3","Ticket response and retention"));
 for(const [id,label,max] of [["response-target","First response target (minutes; 0 disables alerts)",10080],["retention-days","Transcript retention (days; 0 keeps indefinitely)",365]]){const field=el("label",label);const input=el("input");input.id=id;input.type="number";input.min="0";input.max=String(max);field.append(input);policyForm.append(field)}

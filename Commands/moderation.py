@@ -11,7 +11,7 @@ import traceback
 from contextlib import closing
 from logFunction import print_interaction_info
 from dashboard_store import safe_record_case
-from config_loader import load_config
+from config_loader import ConfigError, load_config
 from guild_config import guild_database_path, load_active_guild_config
 from moderation_policy import escalation_for_warning_count
 
@@ -158,7 +158,13 @@ class ModsCommand(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         try:
+            load_active_guild_config(payload.guild_id)
+        except ConfigError:
+            return
+        try:
             channel: discord.TextChannel = self.client.get_channel(payload.channel_id)
+            if channel is None or channel.guild.id != payload.guild_id:
+                return
             msg: discord.Message = await channel.fetch_message(payload.message_id)
             if msg.author.id == self.client.user.id:
                 if msg.content.startswith(payload.member.mention):

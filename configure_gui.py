@@ -264,6 +264,9 @@ class ProjectLSetupWizard:
             row=1, column=1, padx=(8, 0)
         )
         self.ttk.Button(
+            footer, text="Configure another server", command=self.open_another_server,
+        ).grid(row=1, column=0, sticky="w")
+        self.ttk.Button(
             footer, text="Check Readiness", command=self.validate_only
         ).grid(row=1, column=2, padx=(8, 0))
         self.ttk.Button(
@@ -938,6 +941,29 @@ class ProjectLSetupWizard:
         self.set_status(
             "Opened Discord with Project L's required permissions.", success=True
         )
+
+    def open_another_server(self):
+        """Open a separate setup window without replacing this server's config."""
+        from tkinter import simpledialog
+        entered = simpledialog.askstring(
+            "Additional Project L server", "Enter the new Discord server ID:",
+            parent=self.root,
+        )
+        if entered is None:
+            return
+        try:
+            guild_id = parse_discord_id(entered, "Discord server ID", required=True)
+            window = self.tk.Toplevel(self.root)
+            try:
+                ProjectLSetupWizard(
+                    window, self.tk, self.ttk, self.messagebox,
+                    target_guild_id=guild_id,
+                )
+            except Exception:
+                window.destroy()
+                raise
+        except ConfigError as exc:
+            self.messagebox.showerror("Could not open server setup", str(exc), parent=self.root)
 
     def validated_values(self):
         if not self.gateway_intents_confirmed.get():

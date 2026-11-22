@@ -137,6 +137,10 @@ class PublicVoiceCleanup(commands.Cog):
         self.sweep_empty_rooms.cancel()
 
     async def delete_if_empty(self, room):
+        try:
+            load_active_guild_config(room.guild.id)
+        except ConfigError:
+            return
         if room.members or not tracked_room(room.id):
             return
         try:

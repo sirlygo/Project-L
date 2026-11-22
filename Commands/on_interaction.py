@@ -361,7 +361,8 @@ class OnInteractionEvent(commands.Cog):
                 ticketcat = interaction.guild.get_channel(categoryid)
                 if ticketcat is None:
                     ticketcat = await interaction.guild.fetch_channel(categoryid)
-                if not isinstance(ticketcat, discord.CategoryChannel):
+                if (not isinstance(ticketcat, discord.CategoryChannel)
+                        or ticketcat.guild.id != interaction.guild_id):
                     await interaction.followup.send(
                         "The configured ticket destination is not a category. "
                         "Ask an administrator to update it in the setup wizard.",
@@ -522,7 +523,7 @@ class OnInteractionEvent(commands.Cog):
             logfile = None
             try:
                 logfile = discord.File(transcript_path, filename=transcript_path.name)
-                logchan = self.client.get_channel(transcriptsid)
+                logchan = interaction.guild.get_channel(transcriptsid)
                 if logchan is None:
                     await interaction.followup.send(
                         "The transcript channel is not configured; here is your transcript.",

@@ -140,9 +140,21 @@ to find or enter them. You may still edit the file manually for advanced use:
 Discord IDs must be JSON numbers without quotes, `0` disables an optional role,
 and an empty string disables an optional account or API credential.
 
+To configure another server for the same bot, choose **Configure another server**
+in the setup window and enter its Discord server ID, or run
+`python configure_gui.py --guild-id SERVER_ID`. Invite the bot to that server,
+then use **Save & Create** in the new window and restart the bot. Each additional
+server has its own Git-ignored `Data/guilds/SERVER_ID/config.json` and
+`roles.json`; it does not copy the primary server's channel or role IDs, and
+application credentials remain in the primary config only. If a member shares
+multiple configured servers, a DM to modmail must start with
+`server:SERVER_ID` to identify the intended staff team. The dashboard server
+picker similarly limits every request to the selected server and rechecks that
+user's permissions.
+
 Important settings:
 
-- `guildId`: the one Discord server this bot is allowed to handle.
+- `guildId`: the Discord server this configuration file manages.
 - `client_id`: discovered from the bot token during setup.
 - `welcome`: automatic welcome output channel. Generated welcome images are
   attached directly to the welcome message.
