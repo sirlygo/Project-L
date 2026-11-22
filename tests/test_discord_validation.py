@@ -150,6 +150,40 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
         self.assertIn("Reaction Role 1 is managed by Discord", error_text)
         self.assertIn("Manage Roles", error_text)
 
+    def test_equal_position_role_id_tie_breaker(self):
+        self.config["verified"] = 401
+        roles = [
+            {"id": "100", "name": "@everyone", "permissions": "0", "position": 0},
+            {
+                "id": "201",
+                "name": "Project L",
+                "permissions": str(required_bot_permissions()),
+                "position": 1,
+            },
+            {"id": "401", "name": "Project L Verified", "permissions": "0", "position": 1},
+        ]
+        report = validate_discord_snapshot_report(
+            self.config,
+            [],
+            bot_user={"id": "200"},
+            bot_member={"roles": ["201"]},
+            channels=[],
+            roles=roles,
+        )
+        self.assertFalse(any("Verified Role is not below" in error for error in report.errors))
+
+        roles[2]["id"] = "199"
+        self.config["verified"] = 199
+        report = validate_discord_snapshot_report(
+            self.config,
+            [],
+            bot_user={"id": "200"},
+            bot_member={"roles": ["201"]},
+            channels=[],
+            roles=roles,
+        )
+        self.assertTrue(any("Verified Role is not below" in error for error in report.errors))
+
     def test_channel_overwrite_can_remove_a_required_bot_permission(self):
         self.config["welcome"] = 301
         base_permissions = required_bot_permissions()

@@ -228,6 +228,19 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertEqual(second_report.updated, [])
         self.assertEqual(second_config, config)
 
+    def test_new_roles_at_same_position_as_bot_are_reused(self):
+        # Discord sorts equal-position roles by ID; newer roles are lower.
+        self.api.roles[1]["position"] = 1
+        config, first_report = provision_guild_resources(
+            self.config, token="token", request_json=self.api
+        )
+        second_config, second_report = provision_guild_resources(
+            config, token="token", request_json=self.api
+        )
+        self.assertTrue(first_report.created)
+        self.assertEqual(second_report.created, [])
+        self.assertEqual(second_config, config)
+
     def test_integrations_share_one_automatic_alert_channel(self):
         self.config["ytChannel"] = "https://www.youtube.com/@projectl"
         self.config["twitchChannelName"] = "projectl"

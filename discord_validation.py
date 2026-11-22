@@ -239,20 +239,28 @@ def _bot_guild_permissions(
     config: Mapping[str, Any],
     bot_member: Mapping[str, Any],
     role_index: Mapping[int, Mapping[str, Any]],
-) -> tuple[int, set[int], int]:
+) -> tuple[int, set[int], tuple[int, int]]:
     guild_id = int(config.get("guildId", 0) or 0)
     role_ids = {int(role_id) for role_id in bot_member.get("roles", [])}
     if guild_id:
         role_ids.add(guild_id)
     permissions = 0
-    highest_position = 0
+    highest_role_key = (0, 0)
     for role_id in role_ids:
         role = role_index.get(role_id)
         if role is None:
             continue
         permissions |= _permission_value(role.get("permissions"))
-        highest_position = max(highest_position, int(role.get("position", 0) or 0))
-    return permissions, role_ids, highest_position
+        highest_role_key = max(highest_role_key, role_hierarchy_key(role))
+    return permissions, role_ids, highest_role_key
+
+
+def role_hierarchy_key(role: Mapping[str, Any]) -> tuple[int, int]:
+    """Match Discord's position ordering, including its role-ID tie breaker."""
+    return (
+        int(role.get("position", 0) or 0),
+        -int(role.get("id", 0) or 0),
+    )
 
 
 def _apply_overwrite(permissions: int, overwrite: Mapping[str, Any]) -> int:
@@ -437,7 +445,7 @@ def validate_discord_snapshot_report(
             errors.append(f"{label} was not found in the configured server.")
 
     if bot_member is not None:
-        base_permissions, bot_role_ids, highest_bot_position = _bot_guild_permissions(
+        base_permissions, bot_role_ids, highest_bot_role_key = _bot_guild_permissions(
             config, bot_member, role_index
         )
         administrator = bool(base_permissions & PERMISSION_BITS["administrator"])
@@ -502,7 +510,7 @@ def validate_discord_snapshot_report(
                 continue
             if role.get("managed"):
                 errors.append(f"{label} is managed by Discord and cannot be assigned.")
-            if int(role.get("position", 0) or 0) >= highest_bot_position:
+            if role_hierarchy_key(role) >= highest_bot_role_key:
                 errors.append(f"{label} is not below the bot's highest role.")
 
         stream_role_id = int(config.get("streamRole", 0) or 0)

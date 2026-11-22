@@ -20,6 +20,7 @@ from discord_validation import (
     REQUIRED_BOT_PERMISSION_SPECS,
     USER_AGENT,
     missing_privileged_intents,
+    role_hierarchy_key,
 )
 from discord_validation import (
     required_bot_permissions as _required_bot_permissions,
@@ -313,15 +314,15 @@ def _staff_role_ids(snapshot: _DiscordSnapshot) -> list[int]:
     return result
 
 
-def _bot_top_role_position(snapshot: _DiscordSnapshot) -> int:
+def _bot_top_role_key(snapshot: _DiscordSnapshot) -> tuple[int, int]:
     bot_role_ids = {int(role_id) for role_id in snapshot.bot_member.get("roles", [])}
     return max(
         (
-            int(role.get("position", 0) or 0)
+            role_hierarchy_key(role)
             for role in snapshot.roles
             if int(role.get("id", 0) or 0) in bot_role_ids
         ),
-        default=0,
+        default=(0, 0),
     )
 
 
@@ -338,13 +339,13 @@ def _ensure_role(
     mentionable: bool,
 ) -> dict[str, Any]:
     """Reuse an assignable role or create a safe no-permission role."""
-    top_position = _bot_top_role_position(snapshot)
+    top_role_key = _bot_top_role_key(snapshot)
 
     def usable(role: Mapping[str, Any]) -> bool:
         return bool(
             int(role.get("id", 0) or 0) != snapshot.guild_id
             and not role.get("managed", False)
-            and int(role.get("position", 0) or 0) < top_position
+            and role_hierarchy_key(role) < top_role_key
             # Verification and streamer roles are granted by self-service
             # controls. Never reuse a role carrying server permissions.
             and _permission_value(role.get("permissions")) == 0
