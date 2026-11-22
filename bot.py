@@ -13,6 +13,7 @@ from collections import deque
 from easy_pil import Editor, load_image_async, Font
 from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
+from Commands.giveaways import giveaway_path
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
 from guild_guard import ConfiguredGuildTree
@@ -575,9 +576,9 @@ async def _legacy_checker():
         continue
 
 
-def update_giveaway_record(giveaway_id, *, delete=False):
+def update_giveaway_record(giveaway_id, guild_id, *, delete=False):
     try:
-        with sqlite3.connect("Data/users.db") as conn:
+        with sqlite3.connect(giveaway_path(guild_id)) as conn:
             if delete:
                 conn.execute("DELETE FROM giveaways WHERE id = ?", (giveaway_id,))
             else:
@@ -593,7 +594,7 @@ def update_giveaway_record(giveaway_id, *, delete=False):
 @tasks.loop(seconds=30)
 async def checker():
     try:
-        with sqlite3.connect("Data/users.db") as conn:
+        with sqlite3.connect(giveaway_path(guildId)) as conn:
             records = conn.execute(
                 "SELECT id, channel, message FROM giveaways "
                 "WHERE ends <= ? AND ended = 0",
@@ -607,17 +608,17 @@ async def checker():
         try:
             channel = client.get_channel(channel_id)
             if channel is None:
-                update_giveaway_record(giveaway_id, delete=True)
+                update_giveaway_record(giveaway_id, guildId, delete=True)
                 continue
 
             message = await channel.fetch_message(message_id)
             if not message.embeds or not message.embeds[0].description:
-                update_giveaway_record(giveaway_id, delete=True)
+                update_giveaway_record(giveaway_id, guildId, delete=True)
                 continue
 
             embed = message.embeds[0]
             if "Giveaway ended" in embed.description:
-                update_giveaway_record(giveaway_id)
+                update_giveaway_record(giveaway_id, guildId)
                 continue
             winners = parse_winner_count(embed.description)
 
@@ -635,7 +636,7 @@ async def checker():
 
             if len(participants) < winners:
                 await message.reply("Not enough participants for this giveaway.")
-                update_giveaway_record(giveaway_id)
+                update_giveaway_record(giveaway_id, guildId)
                 continue
 
             winner_list = random.sample(list(participants.values()), k=winners)
@@ -652,9 +653,9 @@ async def checker():
                 )
             result_embed.set_footer(text="Giveaway ended")
             await message.reply(embed=result_embed)
-            update_giveaway_record(giveaway_id)
+            update_giveaway_record(giveaway_id, guildId)
         except discord.NotFound:
-            update_giveaway_record(giveaway_id, delete=True)
+            update_giveaway_record(giveaway_id, guildId, delete=True)
         except (
             discord.Forbidden,
             discord.HTTPException,
