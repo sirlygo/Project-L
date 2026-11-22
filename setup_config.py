@@ -361,7 +361,11 @@ def build_configuration(
             "Twitch notifications require a client ID and client secret, either here or in environment variables."
         )
 
-    if config["kickMemberFunction"] and not config.get("verified"):
+    if (
+        config["kickMemberFunction"]
+        and not auto_managed_channels
+        and not config.get("verified")
+    ):
         errors.append("The unverified-member cleanup requires a Verified Role ID.")
     if (
         not auto_managed_channels

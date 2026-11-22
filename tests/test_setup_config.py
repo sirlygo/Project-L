@@ -78,6 +78,18 @@ class SetupConfigTests(unittest.TestCase):
         self.assertEqual(config["token"], "local-token")
         self.assertEqual(role_ids, [])
 
+    def test_automatic_setup_can_create_verified_role_with_cleanup_enabled(self):
+        values = self.valid_values()
+        values["verified"] = ""
+        values["streamRole"] = ""
+        values["kickMemberFunction"] = True
+        config, _role_ids = build_configuration(
+            values, self.example, environ={}, auto_managed_channels=True
+        )
+        self.assertEqual(config["verified"], 0)
+        self.assertEqual(config["streamRole"], 0)
+        self.assertTrue(config["kickMemberFunction"])
+
     def test_environment_token_is_used_but_never_written_into_config(self):
         values = self.valid_values()
         values["token"] = ""
