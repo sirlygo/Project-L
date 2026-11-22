@@ -85,6 +85,24 @@ def discover_bot_user_id(
 class DiscordProvisioningError(RuntimeError):
     """Raised when automatic Discord resource setup cannot finish safely."""
 
+    def __init__(self, message: str, *, http_status: int | None = None, discord_code: int | None = None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.discord_code = discord_code
+
+
+class DiscordGuildAccessError(DiscordProvisioningError):
+    """The authenticated bot is not able to access the chosen server."""
+
+    def __init__(self, bot_user_id: int, guild_id: int):
+        self.bot_user_id = bot_user_id
+        self.guild_id = guild_id
+        self.invite_url = build_bot_invite_url(bot_user_id, guild_id)
+        super().__init__(
+            f"Bot {bot_user_id} cannot access server {guild_id}. "
+            "Authorize this bot for that server in the invite page, then retry Save & Create."
+        )
+
 
 @dataclass
 class DiscordProvisioningReport:
@@ -193,7 +211,11 @@ def _request_json(
                     message += f" Discord error code: {discord_code}."
             if api_message and api_message.casefold() not in message.casefold():
                 message = f"{message} Discord says: {api_message}"
-            raise DiscordProvisioningError(message) from exc
+            raise DiscordProvisioningError(
+                message,
+                http_status=exc.code,
+                discord_code=details.get("code"),
+            ) from exc
         except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise DiscordProvisioningError(
                 f"Could not contact Discord during automatic setup: {exc}"
@@ -241,7 +263,12 @@ def _fetch_snapshot(
             f"https://discord.com/developers/applications/{bot_user_id}/bot, "
             "enable each switch, save, and try again."
         )
-    channels = request_json("GET", f"guilds/{guild_id}/channels", token, timeout)
+    try:
+        channels = request_json("GET", f"guilds/{guild_id}/channels", token, timeout)
+    except DiscordProvisioningError as exc:
+        if exc.http_status == 403 and exc.discord_code == 50001:
+            raise DiscordGuildAccessError(bot_user_id, guild_id) from exc
+        raise
     roles = request_json("GET", f"guilds/{guild_id}/roles", token, timeout)
     bot_member = request_json(
         "GET", f"guilds/{guild_id}/members/{bot_user_id}", token, timeout

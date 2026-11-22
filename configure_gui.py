@@ -11,6 +11,7 @@ from pathlib import Path
 
 from config_loader import ConfigError, load_role_ids
 from discord_provisioning import (
+    DiscordGuildAccessError,
     DiscordProvisioningError,
     build_bot_invite_url,
     configuration_without_managed_channels,
@@ -937,6 +938,22 @@ class ProjectLSetupWizard:
                 provision=True
             )
             save_configuration(config, role_ids)
+        except DiscordGuildAccessError as exc:
+            self.set_status("Authorize the bot for this server, then retry Save & Create.", error=True)
+            opened = webbrowser.open(exc.invite_url)
+            next_step = (
+                "The bot invite has opened in your browser. Complete Discord's "
+                "authorization, then retry Save & Create."
+                if opened
+                else "Open this bot invite in your browser, authorize it, then retry Save & Create:\n\n"
+                + exc.invite_url
+            )
+            self.messagebox.showwarning(
+                "Authorize Project L for this server",
+                f"{exc}\n\n{next_step}",
+                parent=self.root,
+            )
+            return
         except (
             ConfigError,
             DiscordProvisioningError,

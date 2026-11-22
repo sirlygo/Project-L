@@ -10,7 +10,7 @@ from configure_gui import (
     format_validation_warnings,
     required_gateway_intents_text,
 )
-from discord_provisioning import DiscordProvisioningReport
+from discord_provisioning import DiscordGuildAccessError, DiscordProvisioningReport
 from discord_validation import (
     PERMISSION_BITS,
     required_bot_permissions,
@@ -368,6 +368,27 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
         build_invite.assert_called_once_with(654321, 123456)
         open_browser.assert_called_once_with("https://discord.example/invite")
         wizard.messagebox.showerror.assert_not_called()
+
+    def test_save_opens_exact_invite_when_bot_cannot_access_server(self):
+        wizard = object.__new__(ProjectLSetupWizard)
+        wizard.root = Mock()
+        wizard.messagebox = Mock()
+        wizard.set_status = Mock()
+        wizard.saved = False
+        wizard.validated_live_values = Mock(side_effect=DiscordGuildAccessError(654321, 123456))
+        with (
+            patch("configure_gui.webbrowser.open", return_value=True) as open_browser,
+            patch("configure_gui.save_configuration") as save_configuration,
+        ):
+            wizard.save()
+        open_browser.assert_called_once_with(
+            "https://discord.com/oauth2/authorize?client_id=654321"
+            "&scope=bot+applications.commands&permissions=10170754395382"
+            "&integration_type=0&guild_id=123456&disable_guild_select=true"
+        )
+        wizard.messagebox.showwarning.assert_called_once()
+        save_configuration.assert_not_called()
+        self.assertFalse(wizard.saved)
 
     def test_gui_bot_settings_button_resolves_exact_application(self):
         wizard = object.__new__(ProjectLSetupWizard)

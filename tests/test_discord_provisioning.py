@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 
 from config_loader import AUTOMATIC_SETUP_VERSION
 from discord_provisioning import (
+    DiscordGuildAccessError,
     DiscordProvisioningError,
     _request_json,
     build_bot_invite_url,
@@ -236,6 +237,26 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertIn("POST guilds/100/channels (project-l-panels)", message)
         self.assertIn("50001", message)
         self.assertNotIn("private-token", message)
+
+    def test_guild_access_error_includes_exact_bot_invite(self):
+        def request(method, path, _token, _timeout, _payload=None):
+            if path == "users/@me":
+                return {"id": "200"}
+            if path == "oauth2/applications/@me":
+                return {"flags": ENABLED_PRIVILEGED_INTENT_FLAGS}
+            raise DiscordProvisioningError(
+                "Missing Access", http_status=403, discord_code=50001
+            )
+
+        with self.assertRaises(DiscordGuildAccessError) as raised:
+            validate_provisioning_access(
+                self.config, token="private-token", request_json=request
+            )
+        self.assertEqual(raised.exception.bot_user_id, 200)
+        self.assertEqual(raised.exception.guild_id, 100)
+        self.assertIn("client_id=200", raised.exception.invite_url)
+        self.assertIn("guild_id=100", raised.exception.invite_url)
+        self.assertNotIn("private-token", str(raised.exception))
 
     def test_second_run_is_idempotent(self):
         config, first_report = provision_guild_resources(
