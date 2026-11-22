@@ -15,6 +15,7 @@ from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
+from guild_guard import ConfiguredGuildTree
 from dashboard_store import (
     claim_due_announcements, finish_announcement, mark_interrupted_announcements_failed,
     mark_response_alerted,
@@ -108,6 +109,7 @@ intents.message_content = True
 
 client = commands.Bot(
     command_prefix="!",
+    tree_cls=ConfiguredGuildTree,
     intents=intents,
     help_command=None,
     status=discord.Status.online,
