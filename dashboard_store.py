@@ -50,6 +50,8 @@ def _connect():
     columns = {row[1] for row in db.execute("PRAGMA table_info(tickets)")}
     if "first_staff_response_at" not in columns:
         db.execute("ALTER TABLE tickets ADD COLUMN first_staff_response_at INTEGER")
+    if "response_alerted_at" not in columns:
+        db.execute("ALTER TABLE tickets ADD COLUMN response_alerted_at INTEGER")
     return db
 
 
@@ -199,6 +201,29 @@ def purge_transcripts(guild_id, older_than):
         return db.execute(
             "DELETE FROM transcripts WHERE guild_id=? AND created_at<?", (guild_id, older_than),
         ).rowcount
+
+
+def overdue_tickets(guild_id, target_minutes, now=None):
+    if target_minutes <= 0:
+        return []
+    current = int(time.time()) if now is None else int(now)
+    with closing(_connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT channel_id,owner_id,created_at,assignee_id FROM tickets WHERE guild_id=? "
+            "AND status='open' AND first_staff_response_at IS NULL "
+            "AND response_alerted_at IS NULL AND created_at<=? ORDER BY created_at LIMIT 20",
+            (guild_id, current - target_minutes * 60),
+        )]
+
+
+def mark_response_alerted(guild_id, channel_id, now=None):
+    current = int(time.time()) if now is None else int(now)
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "UPDATE tickets SET response_alerted_at=? WHERE guild_id=? AND channel_id=? "
+            "AND response_alerted_at IS NULL",
+            (current, guild_id, channel_id),
+        ).rowcount > 0
 
 
 def submit_appeal(guild_id, member_id, message, case_id=None):

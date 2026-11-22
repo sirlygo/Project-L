@@ -6,7 +6,8 @@ from unittest.mock import patch
 from dashboard_store import (
     add_staff_note, create_ticket_record, list_appeals, list_cases, list_staff_notes,
     list_tickets, overview,
-    record_case, record_staff_response, review_appeal, submit_appeal, update_ticket,
+    mark_response_alerted, overdue_tickets, purge_transcripts, record_case,
+    record_staff_response, review_appeal, submit_appeal, update_ticket,
     get_transcript, save_transcript, search_transcripts,
 )
 
@@ -25,6 +26,9 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(list_staff_notes(2, "case", case_id), [])
 
             create_ticket_record(10, 1, 2, "help", {"Issue": "Can’t join"})
+            self.assertEqual(len(overdue_tickets(1, 1, now=9999999999)), 1)
+            self.assertTrue(mark_response_alerted(1, 10))
+            self.assertEqual(overdue_tickets(1, 1, now=9999999999), [])
             self.assertEqual(list_tickets(1)[0]["answers"]["Issue"], "Can’t join")
             self.assertTrue(update_ticket(10, 1, priority="high", assignee_id=3))
             self.assertTrue(update_ticket(10, 1, status="closed"))
@@ -47,6 +51,8 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(len(search_transcripts(1, "voice chat")), 1)
             self.assertEqual(search_transcripts(2, "voice chat"), [])
             self.assertIn("needs help", get_transcript(1, 10))
+            self.assertEqual(purge_transcripts(1, 9999999999), 1)
+            self.assertIsNone(get_transcript(1, 10))
 
 
 if __name__ == "__main__":

@@ -338,8 +338,8 @@ class Dashboard:
             workspace = {
                 "priorities": priorities,
                 "searchableTranscripts": bool(tickets.get("searchableTranscripts", False)),
-                "responseTargetMinutes": max(0, min(10080, int(tickets.get("responseTargetMinutes", 0)))),
-                "transcriptRetentionDays": max(0, min(365, int(tickets.get("transcriptRetentionDays", 0)))),
+                "responseTargetMinutes": max(0, min(10080, int(tickets.get("responseTargetMinutes", (load_config().get("ticketWorkspace") or {}).get("responseTargetMinutes", 0))))),
+                "transcriptRetentionDays": max(0, min(365, int(tickets.get("transcriptRetentionDays", (load_config().get("ticketWorkspace") or {}).get("transcriptRetentionDays", 0))))),
                 "forms": validate_forms(tickets.get("forms") or DEFAULT_FORMS),
             }
         except (ValueError, TypeError, json.JSONDecodeError) as exc:

@@ -27,6 +27,8 @@
   "ticketWorkspace": {
     "priorities": ["low", "normal", "high", "urgent"],
     "searchableTranscripts": false,
+    "responseTargetMinutes": 0,
+    "transcriptRetentionDays": 0,
     "forms": {
       "help": [{"label": "What do you need help with?", "required": true, "maxLength": 1000}],
       "suggestions": [{"label": "What is your suggestion?", "required": true, "maxLength": 1000}],

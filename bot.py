@@ -15,6 +15,7 @@ from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
+from dashboard_store import mark_response_alerted, overdue_tickets, purge_transcripts
 from config_loader import (
     BASE_DIR,
     ConfigError,
@@ -425,12 +426,45 @@ async def on_ready():
     if not checker.is_running():
         checker.start()
 
+    if not ticket_maintenance.is_running():
+        ticket_maintenance.start()
+
     if not client.dashboard_attempted:
         client.dashboard_attempted = True
         try:
             client.dashboard_server = await start_dashboard(client)
         except (OSError, ValueError) as exc:
             print(f"[!] Browser dashboard could not start: {exc}")
+
+
+@tasks.loop(minutes=10)
+async def ticket_maintenance():
+    settings = (load_config().get("ticketWorkspace") or {})
+    guild = client.get_guild(guildId)
+    if guild is None:
+        return
+    retention_days = int(settings.get("transcriptRetentionDays", 0) or 0)
+    if retention_days > 0:
+        removed = await asyncio.to_thread(
+            purge_transcripts, guild.id, int(time.time()) - retention_days * 86400,
+        )
+        if removed:
+            print(f"[OK] Purged {removed} expired ticket transcript(s).")
+    target = int(settings.get("responseTargetMinutes", 0) or 0)
+    if target <= 0:
+        return
+    alert_channel = guild.get_channel(int(load_config().get("logs", 0) or 0))
+    if not isinstance(alert_channel, discord.TextChannel):
+        return
+    for ticket in await asyncio.to_thread(overdue_tickets, guild.id, target):
+        try:
+            await alert_channel.send(
+                f"⚠️ Ticket <#{ticket['channel_id']}> has no staff response after "
+                f"{target} minutes.", allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            break
+        await asyncio.to_thread(mark_response_alerted, guild.id, ticket["channel_id"])
 
 
 @tasks.loop(seconds=30)
