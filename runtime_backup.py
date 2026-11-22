@@ -26,8 +26,44 @@ MANIFEST_NAME = "manifest.json"
 KNOWN_DATABASES = (
     Path("Data/users.db"),
     Path("Data/user.db"),
+    Path("Data/levels.db"),
+    Path("Data/dashboard.db"),
     Path("sticky.db"),
 )
+TENANT_DATABASE_NAMES = frozenset({"users.db", "user.db", "levels.db", "dashboard.db"})
+
+
+def _allowed_database_path(relative: Path) -> bool:
+    if relative in KNOWN_DATABASES:
+        return True
+    parts = relative.parts
+    return (
+        len(parts) == 4
+        and parts[0:2] == ("Data", "guilds")
+        and parts[2].isdecimal()
+        and int(parts[2]) > 0
+        and str(int(parts[2])) == parts[2]
+        and parts[3] in TENANT_DATABASE_NAMES
+    )
+
+
+def _existing_databases(base_dir: Path) -> list[tuple[Path, Path]]:
+    relatives = list(KNOWN_DATABASES)
+    guilds_root = base_dir / "Data" / "guilds"
+    if guilds_root.is_dir() and _is_within(guilds_root, base_dir):
+        for guild_dir in guilds_root.iterdir():
+            if not guild_dir.is_dir() or not guild_dir.name.isdecimal():
+                continue
+            for name in sorted(TENANT_DATABASE_NAMES):
+                relatives.append(Path("Data") / "guilds" / guild_dir.name / name)
+    existing = []
+    for relative in relatives:
+        if not _allowed_database_path(relative):
+            continue
+        source = _runtime_path(base_dir, relative)
+        if source.is_file():
+            existing.append((relative, source))
+    return existing
 
 
 class BackupError(RuntimeError):
@@ -155,11 +191,7 @@ def create_backup(
     """Create one consistent snapshot of every existing Project L database."""
     resolved_base = base_dir.resolve()
     root = _backup_root(resolved_base, backup_root)
-    existing = [
-        (relative, _runtime_path(resolved_base, relative))
-        for relative in KNOWN_DATABASES
-        if _runtime_path(resolved_base, relative).is_file()
-    ]
+    existing = _existing_databases(resolved_base)
     if not existing:
         removed = prune_backups(root, keep) if root.exists() else 0
         return BackupResult(path=None, database_count=0, removed_count=removed)
@@ -240,20 +272,22 @@ def verify_backup(path: Path, *, backup_root: Path | None = None) -> dict[str, A
     root = (backup_root or path.resolve().parent).resolve()
     backup_directory = _validated_backup_directory(path, root)
     manifest = _load_manifest(backup_directory)
-    known = {item.as_posix() for item in KNOWN_DATABASES}
+    seen = set()
     for entry in manifest["databases"]:
         if not isinstance(entry, dict):
             raise BackupError("Backup manifest contains an invalid database entry.")
         relative_text = str(entry.get("path", ""))
         relative = Path(relative_text)
         if (
-            relative.as_posix() not in known
+            not _allowed_database_path(relative)
             or relative.is_absolute()
             or ".." in relative.parts
+            or relative.as_posix() in seen
         ):
             raise BackupError(
                 f"Backup manifest contains an unsafe path: {relative_text}"
             )
+        seen.add(relative.as_posix())
         backup_file = (backup_directory / relative).resolve()
         if not _is_within(backup_file, backup_directory) or not backup_file.is_file():
             raise BackupError(f"Backup database is missing: {relative_text}")

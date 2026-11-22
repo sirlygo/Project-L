@@ -44,6 +44,43 @@ class RuntimeBackupTests(unittest.TestCase):
         self.assertEqual(manifest["databases"][0]["path"], "Data/users.db")
         self.assertEqual(len(list_backups(base_dir=self.base)), 1)
 
+    def test_backup_includes_dashboard_levels_and_each_guild_database(self):
+        extra_paths = (
+            Path("Data/levels.db"), Path("Data/dashboard.db"),
+            Path("Data/guilds/2/users.db"), Path("Data/guilds/2/dashboard.db"),
+        )
+        for relative in extra_paths:
+            path = self.base / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with closing(sqlite3.connect(path)) as connection:
+                connection.execute("CREATE TABLE state (value TEXT)")
+                connection.execute("INSERT INTO state VALUES ('before')")
+                connection.commit()
+        result = create_backup(base_dir=self.base)
+        self.assertEqual(result.database_count, 1 + len(extra_paths))
+        manifest = verify_backup(result.path, backup_root=self.base / "Backups")
+        self.assertEqual(
+            {item["path"] for item in manifest["databases"]},
+            {"Data/users.db", *(path.as_posix() for path in extra_paths)},
+        )
+
+        tenant = self.base / "Data/guilds/2/users.db"
+        with closing(sqlite3.connect(tenant)) as connection:
+            connection.execute("UPDATE state SET value='after'")
+            connection.commit()
+        restore_backup(result.path, base_dir=self.base, force=True)
+        with closing(sqlite3.connect(tenant)) as connection:
+            self.assertEqual(connection.execute("SELECT value FROM state").fetchone()[0], "before")
+
+    def test_manifest_rejects_unapproved_tenant_database_path(self):
+        snapshot = create_backup(base_dir=self.base).path
+        manifest_path = snapshot / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["databases"][0]["path"] = "Data/guilds/2/secrets.db"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(BackupError, "unsafe path"):
+            verify_backup(snapshot, backup_root=self.base / "Backups")
+
     def test_restore_requires_force_and_preserves_recovery_snapshot(self):
         snapshot = create_backup(base_dir=self.base).path
         self._write_value("changed")

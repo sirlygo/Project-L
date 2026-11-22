@@ -7,6 +7,8 @@ param(
     [int]$MaxRestarts = 5,
     [ValidateRange(1, 300)]
     [int]$RestartDelaySeconds = 5,
+    [ValidateRange(1, 100000)]
+    [int]$BackupKeep = 14,
     [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$BotArguments
 )
@@ -129,7 +131,7 @@ try {
     }
 
     Write-Host "Creating a verified runtime database backup..."
-    & $venvPython $backupPath backup --keep 14 --quiet
+    & $venvPython $backupPath backup --keep $BackupKeep --quiet
     $backupExit = $LASTEXITCODE
     if ($backupExit -ne 0) {
         Write-Warning "Database backup failed; the bot was not started."
