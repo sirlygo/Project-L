@@ -8,11 +8,29 @@ import random
 import traceback
 from pathlib import Path
 import re
+from contextlib import closing
 from logFunction import print_interaction_info
+from config_loader import BASE_DIR, ConfigError, load_config
+from guild_config import active_guild_configs, guild_database_path, load_active_guild_config
 
 
 STICKY_DB_PATH = Path(__file__).resolve().parents[1] / "sticky.db"
 MODMAIL_TOPIC_PATTERN = re.compile(r"^modmail-user:(\d+)$")
+
+
+def role_button_db_path(guild_id):
+    primary_id = load_config()["guildId"]
+    load_active_guild_config(guild_id)
+    path = guild_database_path(guild_id, "user.db", primary_guild_id=primary_id)
+    if guild_id != primary_id:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path)) as conn, conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS roles ("
+                "channelid INTEGER, messageid INTEGER, roleid INTEGER, "
+                "emoji TEXT, content TEXT, custom_id TEXT)"
+            )
+    return path
 
 
 def modmail_user_id_from_topic(topic):
@@ -26,6 +44,16 @@ def find_modmail_channel(category, user_id):
         (channel for channel in category.text_channels if channel.topic == topic),
         None,
     )
+
+
+def choose_modmail_guild(candidates, content):
+    """Do not guess a DM's destination when the sender shares multiple servers."""
+    if not candidates:
+        return None
+    match = re.match(r"^server:(\d+)(?:\s|$)", str(content or ""), re.IGNORECASE)
+    if match:
+        return next((guild for guild in candidates if guild.id == int(match.group(1))), None)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 class ModmailDeleteView(discord.ui.View):
@@ -71,11 +99,12 @@ class MembersCommand(commands.Cog):
             return None
 
     @staticmethod
-    def _rebuild_button_view(message, message_id, *, excluded_label=None):
+    def _rebuild_button_view(message, message_id, *, guild_id=None, excluded_label=None):
         """Recreate every button row without silently dropping later rows."""
         view = View(timeout=None)
         removed = False
-        with sqlite3.connect("Data/user.db") as conn:
+        path = role_button_db_path(guild_id) if guild_id is not None else BASE_DIR / "Data" / "user.db"
+        with sqlite3.connect(path) as conn:
             for row_index, action_row in enumerate(message.components):
                 for component in action_row.children:
                     if getattr(component, "type", None) != discord.ComponentType.button:
@@ -133,8 +162,11 @@ class MembersCommand(commands.Cog):
             print(f"[!] {warning}")
             self._last_modmail_warning = warning
 
-    async def _resolve_modmail_category(self):
-        category_id = getattr(self.client, "modmailid", 0)
+    async def _resolve_modmail_category(self, guild_id=None):
+        category_id = (
+            int(load_active_guild_config(guild_id).get("modmail", 0) or 0)
+            if guild_id is not None else getattr(self.client, "modmailid", 0)
+        )
         if not category_id:
             return None
 
@@ -165,7 +197,7 @@ class MembersCommand(commands.Cog):
             )
             return None
 
-        configured_guild_id = getattr(self.client, "configured_guild_id", 0)
+        configured_guild_id = guild_id or getattr(self.client, "configured_guild_id", 0)
         if configured_guild_id and category.guild.id != configured_guild_id:
             self._warn_modmail_once(
                 f"Modmail category {category_id} belongs to a different server."
@@ -251,7 +283,33 @@ class MembersCommand(commands.Cog):
             pass
 
     async def _handle_incoming_modmail(self, message):
-        category = await self._resolve_modmail_category()
+        active_guilds = []
+        candidates = []
+        for guild, guild_config in active_guild_configs(self.client.guilds):
+            if not guild_config.get("modmail"):
+                continue
+            active_guilds.append(guild)
+            member = guild.get_member(message.author.id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(message.author.id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    continue
+            if member is not None:
+                candidates.append(guild)
+        routing_pool = candidates or active_guilds
+        target_guild = choose_modmail_guild(routing_pool, message.content)
+        if target_guild is None:
+            detail = (
+                "You share multiple Project L servers. Start your message with "
+                "`server:<server ID>` to choose the staff team. Available servers: "
+                + ", ".join(f"{guild.name} ({guild.id})" for guild in routing_pool[:20])
+                if len(routing_pool) > 1 else
+                "No configured Project L server could be matched to your account."
+            )
+            await self._notify_modmail_sender(message.author, detail)
+            return
+        category = await self._resolve_modmail_category(target_guild.id)
         if category is None:
             await self._notify_modmail_sender(
                 message.author,
@@ -434,7 +492,11 @@ class MembersCommand(commands.Cog):
                 await self._handle_incoming_modmail(message)
                 return
 
-            if getattr(message.channel, "category_id", None) == self.client.modmailid:
+            try:
+                guild_config = load_active_guild_config(message.guild.id)
+            except ConfigError:
+                return
+            if getattr(message.channel, "category_id", None) == guild_config.get("modmail"):
                 await self._handle_staff_modmail_reply(message)
         except Exception:
             print("[!] Unexpected modmail error:\n" + traceback.format_exc())
@@ -582,7 +644,7 @@ class MembersCommand(commands.Cog):
         try:
             messageid = int(messageid)
             message = await interaction.channel.fetch_message(messageid)
-            view, _ = self._rebuild_button_view(message, messageid)
+            view, _ = self._rebuild_button_view(message, messageid, guild_id=interaction.guild_id)
             if link is None:
                 button_custom_id = f"role_button:{messageid}:{role.id}"
                 view.add_item(
@@ -594,7 +656,7 @@ class MembersCommand(commands.Cog):
                 )
 
             if link is None:
-                with sqlite3.connect("Data/user.db") as conn:
+                with sqlite3.connect(role_button_db_path(interaction.guild_id)) as conn:
                     conn.execute(
                         "INSERT INTO roles "
                         "(channelid, messageid, roleid, emoji, content, custom_id) "
@@ -638,7 +700,7 @@ class MembersCommand(commands.Cog):
             messageid = int(messageid)
             message = await interaction.channel.fetch_message(messageid)
             new_view, removed = self._rebuild_button_view(
-                message, messageid, excluded_label=content
+                message, messageid, guild_id=interaction.guild_id, excluded_label=content
             )
             if not removed:
                 await interaction.followup.send(
@@ -646,7 +708,7 @@ class MembersCommand(commands.Cog):
                 )
                 return
             await message.edit(view=new_view)
-            with sqlite3.connect("Data/user.db") as conn:
+            with sqlite3.connect(role_button_db_path(interaction.guild_id)) as conn:
                 conn.execute(
                     "DELETE FROM roles WHERE messageid = ? AND content = ?",
                     (messageid, content),
@@ -1180,9 +1242,9 @@ class RoleToggleButton(Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.guild_id != getattr(
-            interaction.client, "configured_guild_id", None
-        ):
+        try:
+            load_active_guild_config(interaction.guild_id)
+        except ConfigError:
             await interaction.response.send_message(
                 "This bot is not configured for this server.", ephemeral=True
             )

@@ -6,9 +6,9 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
-from config_loader import load_config, load_role_ids
 from config_loader import ConfigError
-from guild_config import load_active_guild_config
+from guild_config import active_guild_configs, load_active_guild_config
+from Commands.panels import reaction_role_ids_for_guild
 from self_roles import ROLE_GROUPS, managed_role_ids
 from Commands.public_voice import PublicVoiceNameModal
 from Commands.private_voice import PrivateVoiceNameModal
@@ -83,13 +83,17 @@ def ticket_permission_overwrites(category, owner, existing_overwrites=None):
 class OnInteractionEvent(commands.Cog):
     def __init__(self, client):
         self.client = client
-        self._ticket_permissions_repaired = False
+        self._ticket_permissions_repaired = set()
 
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.guild is None or message.author.bot or not isinstance(message.channel, discord.TextChannel):
             return
         if ticket_owner_id(message.channel) is None:
+            return
+        try:
+            load_active_guild_config(message.guild.id)
+        except ConfigError:
             return
         permissions = message.author.guild_permissions
         if permissions.administrator or permissions.manage_messages or permissions.moderate_members:
@@ -110,13 +114,11 @@ class OnInteractionEvent(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        if self._ticket_permissions_repaired:
-            return
-        config = load_config()
-        guild = self.client.get_guild(config["guildId"])
-        if guild is None:
-            return
+        for guild, config in active_guild_configs(self.client.guilds):
+            if guild.id not in self._ticket_permissions_repaired:
+                await self._secure_ticket_guild(guild, config)
 
+    async def _secure_ticket_guild(self, guild, config):
         all_succeeded = True
         categories_secured = 0
         repaired = 0
@@ -167,9 +169,10 @@ class OnInteractionEvent(commands.Cog):
                 except (discord.Forbidden, discord.HTTPException):
                     all_succeeded = False
                     print(f"[!] Could not secure existing ticket channel {channel.id}.")
-        self._ticket_permissions_repaired = all_succeeded
+        if all_succeeded:
+            self._ticket_permissions_repaired.add(guild.id)
         print(
-            f"[OK] Secured {categories_secured} ticket category(s), "
+            f"[OK] Secured {categories_secured} ticket category(s) in {guild.id}, "
             f"{repaired} owned ticket(s), and {quarantined} legacy ticket(s)."
         )
 
@@ -282,7 +285,7 @@ class OnInteractionEvent(commands.Cog):
                 return
 
             if group == "manual":
-                permitted = roleid in load_role_ids()
+                permitted = roleid in reaction_role_ids_for_guild(interaction.guild_id)
             else:
                 group_ids = managed_role_ids(config).get(group, {})
                 permitted = group in ROLE_GROUPS and roleid in group_ids.values()

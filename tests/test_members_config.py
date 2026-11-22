@@ -1,5 +1,9 @@
 import unittest
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -7,8 +11,10 @@ import discord
 
 from Commands.members import (
     MembersCommand,
+    choose_modmail_guild,
     find_modmail_channel,
     modmail_user_id_from_topic,
+    role_button_db_path,
 )
 
 
@@ -25,6 +31,30 @@ class FakeCategory:
 
 class FakeTextChannel:
     pass
+
+
+class RoleButtonIsolationTests(unittest.TestCase):
+    def test_secondary_role_buttons_use_a_separate_database(self):
+        with TemporaryDirectory() as directory:
+            primary = Path(directory) / "primary.db"
+            secondary = Path(directory) / "second" / "user.db"
+            with patch("Commands.members.load_config", return_value={"guildId": 1}), \
+                 patch("Commands.members.load_active_guild_config"), \
+                 patch("Commands.members.guild_database_path", side_effect=lambda guild_id, *_args, **_kwargs: primary if guild_id == 1 else secondary):
+                self.assertEqual(role_button_db_path(1), primary)
+                self.assertEqual(role_button_db_path(2), secondary)
+            self.assertFalse(primary.exists())
+            with closing(sqlite3.connect(secondary)) as conn:
+                columns = [row[1] for row in conn.execute("PRAGMA table_info(roles)")]
+            self.assertIn("custom_id", columns)
+
+    def test_ambiguous_modmail_requires_an_explicit_server(self):
+        guilds = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
+        self.assertIsNone(choose_modmail_guild(guilds, "I need help"))
+        self.assertIs(choose_modmail_guild(guilds, "server:2 I need help"), guilds[1])
+        self.assertIsNone(choose_modmail_guild(guilds, "server:3 I need help"))
+        self.assertIs(choose_modmail_guild(guilds[:1], "I need help"), guilds[0])
+        self.assertIsNone(choose_modmail_guild(guilds[:1], "server:2 I need help"))
 
 
 class ModmailCategoryTests(unittest.IsolatedAsyncioTestCase):

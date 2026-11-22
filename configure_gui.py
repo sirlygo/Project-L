@@ -9,7 +9,8 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from config_loader import ConfigError, load_role_ids
+from config_loader import CONFIG_PATH, ROLES_PATH, ConfigError, load_config, load_role_ids
+from guild_config import guild_config_path
 from branding import ART_KEYS, DEFAULT_RULES, missing_art_warnings
 from discord_provisioning import (
     DiscordGuildAccessError,
@@ -95,7 +96,7 @@ class ScrollableTab:
 
 
 class ProjectLSetupWizard:
-    def __init__(self, root, tkinter, ttk, messagebox):
+    def __init__(self, root, tkinter, ttk, messagebox, *, target_guild_id=None):
         self.root = root
         self.tk = tkinter
         self.ttk = ttk
@@ -106,6 +107,12 @@ class ProjectLSetupWizard:
         self.secret_entries: list[object] = []
         self.image_refs: list[object] = []
         self.startup_warnings: list[str] = []
+        self.target_guild_id = target_guild_id
+        self.config_path = guild_config_path(target_guild_id) if target_guild_id else CONFIG_PATH
+        self.roles_path = self.config_path.with_name("roles.json") if target_guild_id else ROLES_PATH
+        self.primary_config = load_config() if target_guild_id else None
+        if target_guild_id and target_guild_id == self.primary_config["guildId"]:
+            raise ConfigError("This is the primary server. Run setup without --guild-id to edit it.")
 
         self.base_config = self._load_config_for_editing()
         role_ids = self._load_roles_for_editing()
@@ -119,7 +126,17 @@ class ProjectLSetupWizard:
 
     def _load_config_for_editing(self):
         try:
-            return load_editable_config()
+            if self.target_guild_id and not self.config_path.exists():
+                config = json.loads(EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"))
+            else:
+                config = load_editable_config(self.config_path)
+            if self.target_guild_id:
+                config["guildId"] = self.target_guild_id
+                config["token"] = self.primary_config["token"]
+                config["client_id"] = self.primary_config["client_id"]
+                config["twClientId"] = self.primary_config["twClientId"]
+                config["twClientsecret"] = self.primary_config["twClientsecret"]
+            return config
         except ConfigError as exc:
             self.startup_warnings.append(
                 f"The existing config could not be read. Saving will replace it. {exc}"
@@ -128,7 +145,9 @@ class ProjectLSetupWizard:
 
     def _load_roles_for_editing(self):
         try:
-            return load_role_ids()
+            if self.target_guild_id and not self.roles_path.exists():
+                return []
+            return load_role_ids(self.roles_path)
         except ConfigError as exc:
             self.startup_warnings.append(
                 f"Reaction roles could not be read and will start empty. {exc}"
@@ -136,7 +155,7 @@ class ProjectLSetupWizard:
             return []
 
     def _configure_window(self):
-        self.root.title("Project L Setup")
+        self.root.title("Project L Setup" + (f" — Server {self.target_guild_id}" if self.target_guild_id else ""))
         self.root.geometry("900x760")
         self.root.minsize(760, 620)
         self.root.configure(background="#eef2f7")
@@ -926,12 +945,18 @@ class ProjectLSetupWizard:
                 f"Confirm that {required_gateway_intents_text()} are enabled on "
                 "the bot's Developer Portal Bot page."
             )
-        return build_configuration(
+        config, role_ids = build_configuration(
             self.collect_values(),
             self.base_config,
             environ=os.environ,
             auto_managed_channels=True,
         )
+        if self.target_guild_id:
+            if config["guildId"] != self.target_guild_id:
+                raise ConfigError("The server ID cannot change while editing this server.")
+            if config["client_id"] != self.primary_config["client_id"]:
+                raise ConfigError("Additional servers must use the same bot application.")
+        return config, role_ids
 
     def validated_live_values(self, *, provision: bool = False):
         config, role_ids = self.validated_values()
@@ -1008,7 +1033,16 @@ class ProjectLSetupWizard:
                 provision=True
             )
             bundle_theme_art(config)
-            save_configuration(config, role_ids)
+            if getattr(self, "target_guild_id", None):
+                # Application credentials belong only in the primary config.
+                config["token"] = ""
+                config["twClientId"] = ""
+                config["twClientsecret"] = ""
+                save_configuration(
+                    config, role_ids, config_path=self.config_path, roles_path=self.roles_path,
+                )
+            else:
+                save_configuration(config, role_ids)
         except DiscordGuildAccessError as exc:
             self.set_status(
                 "Authorize the bot for this server, then retry Save & Create.",
@@ -1096,7 +1130,7 @@ def check_status(*, quiet: bool = False) -> int:
     return 2
 
 
-def run_gui() -> int:
+def run_gui(*, guild_id=None) -> int:
     try:
         import tkinter
         from tkinter import messagebox, ttk
@@ -1113,7 +1147,12 @@ def run_gui() -> int:
         print(f"Could not open the setup window: {exc}", file=sys.stderr)
         return 3
 
-    wizard = ProjectLSetupWizard(root, tkinter, ttk, messagebox)
+    try:
+        wizard = ProjectLSetupWizard(root, tkinter, ttk, messagebox, target_guild_id=guild_id)
+    except ConfigError as exc:
+        messagebox.showerror("Could not open server setup", str(exc), parent=root)
+        root.destroy()
+        return 2
     root.mainloop()
     return 0 if wizard.saved else 1
 
@@ -1130,10 +1169,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="suppress status output when used with --check",
     )
+    parser.add_argument(
+        "--guild-id", type=int,
+        help="configure an additional server without overwriting the primary server",
+    )
     arguments = parser.parse_args(argv)
+    if arguments.guild_id is not None and arguments.guild_id <= 0:
+        parser.error("--guild-id must be a positive integer")
+    if arguments.guild_id is not None and arguments.check:
+        parser.error("--guild-id cannot be combined with --check")
     if arguments.check:
         return check_status(quiet=arguments.quiet)
-    return run_gui()
+    return run_gui(guild_id=arguments.guild_id)
 
 
 if __name__ == "__main__":

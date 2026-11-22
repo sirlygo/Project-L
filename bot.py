@@ -12,7 +12,7 @@ import requests
 from collections import deque
 from contextlib import closing
 from easy_pil import Editor, load_image_async, Font
-from Commands.members import mAddBtn
+from Commands.members import mAddBtn, role_button_db_path
 from Commands.panels import ensure_automatic_panels
 from Commands.giveaways import giveaway_path
 from channel_headers import ensure_channel_headers
@@ -163,7 +163,11 @@ async def sticky_ready(id, content, limit):
             client.sticky.pop(id, None)
             return "unavailable"
     channel_guild = getattr(c, "guild", None)
-    if channel_guild is None or channel_guild.id != guildId:
+    try:
+        if channel_guild is None:
+            raise ConfigError("Sticky channel has no server.")
+        load_active_guild_config(channel_guild.id)
+    except ConfigError:
         client.sticky.pop(id, None)
         return "wrong_server"
     if not hasattr(c, "history") or not hasattr(c, "send"):
@@ -329,22 +333,10 @@ async def on_ready():
                 "missing, inaccessible, or from another server."
             )
 
-        with sqlite3.connect("Data/user.db") as conn:
-            values = conn.execute("SELECT * FROM roles").fetchall()
-        for row in values:
-            try:
-                client.add_view(
-                    mAddBtn(
-                        content=row[4],
-                        emoji=row[3],
-                        role=discord.Object(id=row[2]),
-                        custom_id=row[5],
-                    ),
-                    message_id=int(row[1]),
-                )
-            except Exception as exc:
-                print(f"[!] Could not restore a role button: {exc}")
         client.persistent_state_loaded = True
+
+    for guild, _guild_config in active_guild_configs(client.guilds):
+        restore_role_buttons_for_guild(guild)
 
     if not client.twitch_state_loaded:
         try:
@@ -359,62 +351,8 @@ async def on_ready():
             print(f"[!] Could not restore Twitch notification state: {exc}")
         client.twitch_state_loaded = True
 
-    if not client.panels_reconciled:
-        panel_report = await ensure_automatic_panels(client)
-        if panel_report.created:
-            print("[OK] Installed panels: " + ", ".join(panel_report.created))
-        if panel_report.updated:
-            print("[OK] Updated panels: " + ", ".join(panel_report.updated))
-        if panel_report.moved:
-            print("[OK] Moved panels to their proper channels: " + ", ".join(panel_report.moved))
-        if panel_report.failed:
-            print("[!] Panel setup needs attention: " + "; ".join(panel_report.failed))
-        client.panels_reconciled = not panel_report.failed
-
-    if not client.headers_reconciled:
-        installed_headers = await ensure_channel_headers(client)
-        if installed_headers:
-            print("[OK] Installed channel headers: " + ", ".join(installed_headers))
-        client.headers_reconciled = True
-
-    if not client.layout_reconciled:
-        managed = config.get("managedResources", {})
-        category_order = (
-            "statsCategory", "informationCategory", "announcementsCategory",
-            "communityCategory", "selfRolesCategory", "helpCategory",
-            "voiceHubCategory", "publicVoiceCategory",
-            "voicecategory", "staffCategory", "modmail",
-        )
-        ordered_ids = [
-            int(config.get(key, 0) if key in ("modmail", "voicecategory") else managed.get(key, 0) or 0)
-            for key in category_order
-        ]
-        ordered_ids.extend(int(config.get("tickets", {}).get(key, 0) or 0) for key in (
-            "category_help", "category_suggestions", "category_report"
-        ))
-        all_positioned = True
-        for position, category_id in enumerate(ordered_ids):
-            category = client.get_channel(category_id)
-            if not isinstance(category, discord.CategoryChannel):
-                all_positioned = False
-                continue
-            if category.position == position:
-                continue
-            try:
-                await category.edit(position=position, reason="Organize Project L server categories")
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"[!] Could not position category {category_id}: {exc}")
-                all_positioned = False
-        client.layout_reconciled = all_positioned
-
-        general_id = int(managed.get("generalChatChannel", 0) or 0)
-        general = client.get_channel(general_id)
-        if isinstance(general, discord.TextChannel) and general.position != 0:
-            try:
-                await general.edit(position=0, reason="Keep general chat first in Community")
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"[!] Could not position general chat: {exc}")
-                client.layout_reconciled = False
+    for guild, guild_config in active_guild_configs(client.guilds):
+        await reconcile_managed_guild(guild, guild_config)
 
     if not update_stats.is_running():
         update_stats.start()
@@ -447,6 +385,86 @@ async def on_ready():
             client.dashboard_server = await start_dashboard(client)
         except (OSError, ValueError) as exc:
             print(f"[!] Browser dashboard could not start: {exc}")
+
+
+async def reconcile_managed_guild(guild, guild_config):
+    """Install managed messages and layout using only this server's resources."""
+    if guild.id not in client.panels_reconciled:
+        panel_report = await ensure_automatic_panels(client, guild_config)
+        if panel_report.created:
+            print(f"[OK] Installed panels in {guild.id}: " + ", ".join(panel_report.created))
+        if panel_report.updated:
+            print(f"[OK] Updated panels in {guild.id}: " + ", ".join(panel_report.updated))
+        if panel_report.moved:
+            print(f"[OK] Moved panels in {guild.id}: " + ", ".join(panel_report.moved))
+        if panel_report.failed:
+            print(f"[!] Panel setup in {guild.id} needs attention: " + "; ".join(panel_report.failed))
+        else:
+            client.panels_reconciled.add(guild.id)
+
+    if guild.id not in client.headers_reconciled:
+        installed_headers = await ensure_channel_headers(client, guild_config)
+        if installed_headers:
+            print(f"[OK] Installed channel headers in {guild.id}: " + ", ".join(installed_headers))
+        client.headers_reconciled.add(guild.id)
+
+    if guild.id not in client.layout_reconciled:
+        managed = guild_config.get("managedResources", {})
+        category_order = (
+            "statsCategory", "informationCategory", "announcementsCategory",
+            "communityCategory", "selfRolesCategory", "helpCategory",
+            "voiceHubCategory", "publicVoiceCategory",
+            "voicecategory", "staffCategory", "modmail",
+        )
+        ordered_ids = [
+            int(guild_config.get(key, 0) if key in ("modmail", "voicecategory") else managed.get(key, 0) or 0)
+            for key in category_order
+        ]
+        ordered_ids.extend(int(guild_config.get("tickets", {}).get(key, 0) or 0) for key in (
+            "category_help", "category_suggestions", "category_report"
+        ))
+        all_positioned = True
+        for position, category_id in enumerate(ordered_ids):
+            category = guild.get_channel(category_id)
+            if not isinstance(category, discord.CategoryChannel):
+                all_positioned = False
+                continue
+            if category.position == position:
+                continue
+            try:
+                await category.edit(position=position, reason="Organize Project L server categories")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[!] Could not position category {category_id}: {exc}")
+                all_positioned = False
+        general_id = int(managed.get("generalChatChannel", 0) or 0)
+        general = guild.get_channel(general_id)
+        if isinstance(general, discord.TextChannel) and general.position != 0:
+            try:
+                await general.edit(position=0, reason="Keep general chat first in Community")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[!] Could not position general chat: {exc}")
+                all_positioned = False
+        if all_positioned:
+            client.layout_reconciled.add(guild.id)
+
+
+def restore_role_buttons_for_guild(guild):
+    if guild.id in client.restored_role_guilds:
+        return
+    with closing(sqlite3.connect(role_button_db_path(guild.id))) as conn:
+        values = conn.execute("SELECT * FROM roles").fetchall()
+    for row in values:
+        try:
+            client.add_view(
+                mAddBtn(
+                    content=row[4], emoji=row[3], role=discord.Object(id=row[2]),
+                    custom_id=row[5],
+                ),
+                message_id=int(row[1]),
+            )
+        except Exception as exc:
+            print(f"[!] Could not restore a role button in {guild.id}: {exc}")
+    client.restored_role_guilds.add(guild.id)
 
 
 @tasks.loop(seconds=30)
@@ -822,10 +840,17 @@ async def youtubeloop():
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
-    if guild.id == guildId:
-        await client.tree.sync(guild=guild)
-    else:
+    try:
+        guild_config = load_active_guild_config(guild.id)
+    except ConfigError:
         print(f"[!] Ignoring unconfigured guild {guild.id}.")
+        return
+    await client.tree.sync(guild=guild)
+    restore_role_buttons_for_guild(guild)
+    await reconcile_managed_guild(guild, guild_config)
+    ticket_cog = client.get_cog("OnInteractionEvent")
+    if ticket_cog is not None:
+        await ticket_cog._secure_ticket_guild(guild, guild_config)
 
 
 @client.event
@@ -1025,10 +1050,11 @@ async def loadcogs():
 def configure_client_state():
     client.sticky = {}
     client.persistent_state_loaded = False
+    client.restored_role_guilds = set()
     client.twitch_state_loaded = False
-    client.panels_reconciled = False
-    client.headers_reconciled = False
-    client.layout_reconciled = False
+    client.panels_reconciled = set()
+    client.headers_reconciled = set()
+    client.layout_reconciled = set()
     client.dashboard_attempted = False
     client.dashboard_server = None
     client.configured_guild_id = guildId
