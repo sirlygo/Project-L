@@ -918,6 +918,13 @@ def initialize_databases():
                     "SELECT userid, reason, warner FROM warnings_legacy"
                 )
                 print("[!] Migrated warnings database; preserved warnings_legacy.")
+        warning_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(warnings)").fetchall()
+        }
+        if "created_at" not in warning_columns:
+            conn.execute("ALTER TABLE warnings ADD COLUMN created_at INTEGER")
+        if "expires_at" not in warning_columns:
+            conn.execute("ALTER TABLE warnings ADD COLUMN expires_at INTEGER")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS warnings_userid_idx ON warnings(userid)"
         )

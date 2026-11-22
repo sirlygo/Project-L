@@ -186,8 +186,9 @@ class ModsCommand(commands.Cog):
         try:
             with closing(sqlite3.connect("Data/users.db")) as conn:
                 records = conn.execute(
-                    "SELECT reason, warner FROM warnings WHERE userid = ? ORDER BY id",
-                    (userid,),
+                    "SELECT reason, warner FROM warnings WHERE userid = ? "
+                    "AND (expires_at IS NULL OR expires_at>?) ORDER BY id",
+                    (userid, int(time.time())),
                 ).fetchall()
         except sqlite3.Error as exc:
             print(exc)
@@ -330,6 +331,7 @@ class ModsCommand(commands.Cog):
         interaction: discord.Interaction,
         member: discord.Member,
         reason: app_commands.Range[str, 1, 250] = None,
+        expires_days: app_commands.Range[int, 1, 365] = None,
     ):
         print_interaction_info(interaction)
 
@@ -344,14 +346,18 @@ class ModsCommand(commands.Cog):
 
         try:
             with closing(sqlite3.connect("Data/users.db")) as conn:
+                now = int(time.time())
+                expires_at = now + expires_days * 86400 if expires_days else None
                 cursor = conn.execute(
-                    "INSERT INTO warnings(userid, reason, warner) VALUES(?, ?, ?)",
-                    (userid, reason, interaction.user.id),
+                    "INSERT INTO warnings(userid, reason, warner, created_at, expires_at) "
+                    "VALUES(?, ?, ?, ?, ?)",
+                    (userid, reason, interaction.user.id, now, expires_at),
                 )
                 warning_id = cursor.lastrowid
                 conn.commit()
                 warning_count = conn.execute(
-                    "SELECT COUNT(*) FROM warnings WHERE userid=?", (userid,),
+                    "SELECT COUNT(*) FROM warnings WHERE userid=? "
+                    "AND (expires_at IS NULL OR expires_at>?)", (userid, now),
                 ).fetchone()[0]
         except sqlite3.Error as exc:
             print(exc)

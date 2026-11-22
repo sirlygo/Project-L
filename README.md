@@ -336,6 +336,12 @@ announcements up to a year ahead. Announcements never ping roles or members,
 can be cancelled before sending, and retain sent/failed status. If the bot
 crashes during a send, that item is marked failed for manual review rather
 than risk a duplicate post.
+Until the browser dashboard is configured, server managers can use
+`/scheduleannouncement` and `/cancelannouncement` in Discord. These commands
+are restricted to the configured server and require Manage Server permission.
+Administrators can optionally set `expires_days` on `/warn`. Expired warnings
+stay in the database for history but no longer appear in `/warnings` or count
+toward warning escalation. Existing warnings have no expiry.
 
 To enable it, register `https://YOUR-DOMAIN/oauth/callback` as an OAuth2
 redirect URL for this bot in the Discord Developer Portal. Set these
