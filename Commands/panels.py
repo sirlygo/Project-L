@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from hashlib import sha256
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
@@ -81,14 +82,26 @@ def is_self_role_panel_message(message, bot_user_id):
 
 
 def _panel_image_is_current(message, filename):
-    attachments = getattr(message, "attachments", [])
-    if not any(
-        str(getattr(attachment, "filename", "")).casefold() == filename.casefold()
-        for attachment in attachments
-    ):
-        return False
     image_url = str(getattr(message.embeds[0].image, "url", "") or "")
-    return filename.casefold() in image_url.casefold()
+    return _is_same_message_art_url(image_url, filename, message)
+
+
+def _is_same_message_art_url(image_url: str, filename: str, message) -> bool:
+    parsed = urlparse(image_url)
+    image_name = (parsed.path.rsplit("/", 1)[-1] or parsed.netloc).casefold()
+    if image_name != filename.casefold():
+        return False
+    if parsed.scheme == "attachment":
+        return True
+    if parsed.scheme == "https" and parsed.hostname in {
+        "cdn.discordapp.com", "media.discordapp.net"
+    }:
+        # Discord often consumes an attached embed image and omits it from
+        # message.attachments. The CDN path still proves same-message upload.
+        parts = parsed.path.strip("/").split("/")
+        channel_id = getattr(getattr(message, "channel", None), "id", None)
+        return len(parts) >= 4 and parts[0] == "attachments" and parts[1] == str(channel_id)
+    return False
 
 
 async def repair_self_role_panel_images(channel, bot_user_id):
@@ -170,18 +183,11 @@ def managed_panel_art_is_current(message, kind: str) -> bool:
     art_path = PANEL_ART_IMAGES.get(kind)
     if filename is None or art_path is None or not art_path.is_file():
         return True
-    attachments = getattr(message, "attachments", [])
-    if not any(
-        str(getattr(attachment, "filename", "")).casefold()
-        == filename.casefold()
-        for attachment in attachments
-    ):
-        return False
     embeds = getattr(message, "embeds", [])
     if not embeds:
         return False
     image_url = str(getattr(embeds[0].image, "url", "") or "")
-    return filename.casefold() in image_url.casefold()
+    return _is_same_message_art_url(image_url, filename, message)
 
 
 async def repair_managed_panel_art(message, kind: str) -> bool:

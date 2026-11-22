@@ -294,6 +294,22 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edited["embed"].image.url, f"attachment://{new_name}")
         self.assertEqual([item.filename for item in edited["attachments"]], ["keep_this.txt", new_name])
 
+    async def test_discord_embedded_gif_is_current_without_attachment_listing(self):
+        from Commands.panels import _managed_panel_art_filename, managed_panel_art_is_current
+
+        filename = _managed_panel_art_filename("self_roles:colors")
+        embed = discord.Embed(title="Color Roles")
+        embed.set_image(url=f"https://cdn.discordapp.com/attachments/12/34/{filename}?ex=abc")
+        message = SimpleNamespace(
+            channel=SimpleNamespace(id=12),
+            embeds=[embed],
+            attachments=[],
+            edit=AsyncMock(),
+        )
+        self.assertTrue(managed_panel_art_is_current(message, "self_roles:colors"))
+        self.assertFalse(await repair_managed_panel_art(message, "self_roles:colors"))
+        message.edit.assert_not_awaited()
+
     async def test_local_panel_art_is_uploaded_as_a_message_attachment(self):
         sent = {}
 
