@@ -21,7 +21,7 @@ from PIL import Image
 from branding import ART_KEYS, DEFAULT_RULES
 from config_loader import BASE_DIR, CONFIG_PATH, load_config
 from dashboard_store import (
-    add_staff_note, case_exists, get_transcript, list_appeals, list_cases, list_config_history,
+    add_staff_note, case_exists, get_appeal, get_ticket, get_transcript, list_appeals, list_cases, list_config_history,
     list_staff_notes, list_tickets, overview, record_config_snapshot, review_appeal,
     search_transcripts, submit_appeal, ticket_exists, update_ticket,
 )
@@ -431,7 +431,8 @@ class Dashboard:
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             return _json_error(str(exc))
         channel = identity["guild"].get_channel(channel_id)
-        if not ticket_exists(identity["guild"].id, channel_id):
+        existing_ticket = get_ticket(identity["guild"].id, channel_id)
+        if not existing_ticket:
             return _json_error("Ticket record not found.", 404)
         if not isinstance(channel, discord.TextChannel):
             return _json_error("Ticket channel not found.", 404)
@@ -451,7 +452,19 @@ class Dashboard:
         if not update_ticket(channel_id, identity["guild"].id, status=status,
                              priority=priority, assignee_id=assignee):
             return _json_error("Ticket record not found.", 404)
-        return web.json_response({"saved": True})
+        notification = "not_needed"
+        if assignee is not None and assignee != existing_ticket["assignee_id"]:
+            try:
+                staff_member = identity["guild"].get_member(assignee)
+                await staff_member.send(
+                    f"You were assigned ticket #{channel_id} in {identity['guild'].name}: "
+                    f"https://discord.com/channels/{identity['guild'].id}/{channel_id}",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                notification = "delivered"
+            except (discord.Forbidden, discord.HTTPException):
+                notification = "dm_unavailable"
+        return web.json_response({"saved": True, "assigneeNotification": notification})
 
     async def api_appeals(self, request):
         identity = await self._require(request, staff=True)
@@ -509,7 +522,20 @@ class Dashboard:
             return _json_error(str(exc))
         if not changed:
             return _json_error("Appeal is unavailable or already reviewed.", 404)
-        return web.json_response({"saved": True})
+        notification = "dm_unavailable"
+        appeal = get_appeal(identity["guild"].id, appeal_id)
+        try:
+            user = await self.bot.fetch_user(appeal["member_id"])
+            await user.send(
+                f"Your appeal for {identity['guild'].name} was {status}.\n"
+                f"Staff response: {response}\n"
+                "This message records the decision; any server action is handled separately.",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            notification = "delivered"
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+        return web.json_response({"saved": True, "memberNotification": notification})
 
 
 async def start_dashboard(bot):

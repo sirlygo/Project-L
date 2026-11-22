@@ -161,6 +161,15 @@ def ticket_exists(guild_id, channel_id):
         ).fetchone() is not None
 
 
+def get_ticket(guild_id, channel_id):
+    with closing(_connect()) as db:
+        row = db.execute(
+            "SELECT * FROM tickets WHERE guild_id=? AND channel_id=?",
+            (guild_id, channel_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def add_staff_note(guild_id, subject_type, subject_id, author_id, body):
     if subject_type not in {"ticket", "case"} or not str(body).strip():
         raise ValueError("Invalid staff note")
@@ -260,6 +269,15 @@ def list_appeals(guild_id, *, status=None, limit=100):
     values.append(min(limit, 200))
     with closing(_connect()) as db:
         return [dict(row) for row in db.execute(query, values)]
+
+
+def get_appeal(guild_id, appeal_id):
+    with closing(_connect()) as db:
+        row = db.execute(
+            "SELECT * FROM appeals WHERE guild_id=? AND id=?",
+            (guild_id, appeal_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def review_appeal(guild_id, appeal_id, reviewer_id, status, response):

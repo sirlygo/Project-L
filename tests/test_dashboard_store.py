@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dashboard_store import (
-    add_staff_note, create_ticket_record, list_appeals, list_cases, list_staff_notes,
+    add_staff_note, create_ticket_record, get_appeal, get_ticket,
+    list_appeals, list_cases, list_staff_notes,
     list_tickets, overview,
     mark_response_alerted, overdue_tickets, purge_transcripts, record_case,
     record_staff_response, review_appeal, submit_appeal, update_ticket,
@@ -26,6 +27,8 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(list_staff_notes(2, "case", case_id), [])
 
             create_ticket_record(10, 1, 2, "help", {"Issue": "Can’t join"})
+            self.assertEqual(get_ticket(1, 10)["owner_id"], 2)
+            self.assertIsNone(get_ticket(2, 10))
             self.assertEqual(len(overdue_tickets(1, 1, now=9999999999)), 1)
             self.assertTrue(mark_response_alerted(1, 10))
             self.assertEqual(overdue_tickets(1, 1, now=9999999999), [])
@@ -38,6 +41,8 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertIsNotNone(list_tickets(1)[0]["first_staff_response_at"])
 
             appeal_id = submit_appeal(1, 2, "Please reconsider", case_id)
+            self.assertEqual(get_appeal(1, appeal_id)["member_id"], 2)
+            self.assertIsNone(get_appeal(2, appeal_id))
             self.assertEqual(list_appeals(1, status="open")[0]["id"], appeal_id)
             self.assertTrue(review_appeal(1, appeal_id, 3, "approved", "Okay"))
             self.assertFalse(review_appeal(1, appeal_id, 3, "denied", "No"))

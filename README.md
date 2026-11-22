@@ -350,7 +350,10 @@ is also registered in Discord OAuth2. A public HTTPS domain and the OAuth2
 client secret are still required for access away from the bot's PC. Treat
 `Data/dashboard.db` and retained ticket transcripts as private server data and
 back them up securely. Appeals record decisions; staff must perform any
-unban or other Discord action separately. Discord's native AutoMod can be
+unban or other Discord action separately. The bot attempts to DM the member
+after an appeal decision and DM a newly assigned ticket staff member. If
+Discord blocks the DM, the dashboard reports that follow-up is needed.
+Discord's native AutoMod can be
 configured in Server Settings alongside the bot's optional anti-spam controls.
 
 ## Data and privacy
