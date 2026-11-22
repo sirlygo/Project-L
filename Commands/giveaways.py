@@ -3,6 +3,7 @@ import sqlite3
 import string
 import time
 from pathlib import Path
+from contextlib import closing
 
 import discord
 from discord import app_commands
@@ -10,9 +11,24 @@ from discord.ext import commands
 
 from giveaway_utils import chunk_display_values, ended_description, parse_winner_count
 from logFunction import print_interaction_info
+from config_loader import load_config
+from guild_config import guild_database_path
 
 
 DATABASE_PATH = Path(__file__).resolve().parents[1] / "Data" / "users.db"
+
+
+def giveaway_path(guild_id):
+    primary_id = load_config()["guildId"]
+    path = guild_database_path(guild_id, "users.db", primary_guild_id=primary_id)
+    if guild_id != primary_id:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS giveaways ("
+                "id INTEGER, ends INTEGER, channel INTEGER, message INTEGER, ended INTEGER)"
+            )
+    return path
 
 
 class GiveawayCommands(commands.Cog):
@@ -20,23 +36,23 @@ class GiveawayCommands(commands.Cog):
         self.client = client
 
     @staticmethod
-    def _record(giveaway_id, channel_id):
-        with sqlite3.connect(DATABASE_PATH) as conn:
+    def _record(giveaway_id, channel_id, guild_id):
+        with sqlite3.connect(giveaway_path(guild_id)) as conn:
             return conn.execute(
                 "SELECT message, ended FROM giveaways WHERE id = ? AND channel = ?",
                 (giveaway_id, channel_id),
             ).fetchone()
 
     @staticmethod
-    def _mark_ended(giveaway_id):
-        with sqlite3.connect(DATABASE_PATH) as conn:
+    def _mark_ended(giveaway_id, guild_id):
+        with sqlite3.connect(giveaway_path(guild_id)) as conn:
             conn.execute(
                 "UPDATE giveaways SET ended = 1 WHERE id = ?",
                 (giveaway_id,),
             )
 
     async def _load_message(self, interaction, giveaway_id):
-        record = self._record(giveaway_id, interaction.channel_id)
+        record = self._record(giveaway_id, interaction.channel_id, interaction.guild_id)
         if record is None:
             await interaction.followup.send("No giveaway found.", ephemeral=True)
             return None, None
@@ -140,7 +156,7 @@ class GiveawayCommands(commands.Cog):
             embed = message.embeds[0]
             if ended or "Giveaway ended" in embed.description:
                 if not ended:
-                    self._mark_ended(giveawayid)
+                    self._mark_ended(giveawayid, interaction.guild_id)
                 await interaction.followup.send(
                     "Giveaway has already ended.", ephemeral=True
                 )
@@ -151,7 +167,7 @@ class GiveawayCommands(commands.Cog):
 
             embed.description = ended_description(embed.description)
             await message.edit(embed=embed)
-            self._mark_ended(giveawayid)
+            self._mark_ended(giveawayid, interaction.guild_id)
 
             if len(participants) < winners:
                 await interaction.followup.send(
@@ -199,7 +215,7 @@ class GiveawayCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         message = None
         try:
-            with sqlite3.connect(DATABASE_PATH) as conn:
+            with sqlite3.connect(giveaway_path(interaction.guild_id)) as conn:
                 for _ in range(100):
                     giveaway_id = int("".join(random.choices(string.digits, k=4)))
                     exists = conn.execute(
@@ -225,7 +241,7 @@ class GiveawayCommands(commands.Cog):
             message = await interaction.channel.send(embed=embed)
             await message.add_reaction("🎉")
 
-            with sqlite3.connect(DATABASE_PATH) as conn:
+            with sqlite3.connect(giveaway_path(interaction.guild_id)) as conn:
                 conn.execute(
                     "INSERT INTO giveaways(id, ends, channel, message, ended) "
                     "VALUES (?, ?, ?, ?, 0)",
