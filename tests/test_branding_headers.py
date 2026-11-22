@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from branding import DEFAULT_RULES, resolve_art_path
+from branding import DEFAULT_RULES, missing_art_warnings, resolve_art_path
 from channel_headers import header_copy, header_embed
 
 
@@ -29,6 +29,9 @@ class BrandingHeaderTests(unittest.TestCase):
     def test_missing_custom_art_falls_back(self):
         config = {"branding": {"art": {"giveaways": "missing.gif"}}}
         self.assertEqual(resolve_art_path("giveaways", config).name, "giveaways.gif")
+
+    def test_bundled_art_pack_is_complete(self):
+        self.assertEqual(missing_art_warnings({}), [])
 
 
 if __name__ == "__main__":

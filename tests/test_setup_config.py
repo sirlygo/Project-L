@@ -20,6 +20,7 @@ from setup_config import (
     parse_discord_id,
     parse_role_ids_text,
     parse_twitch_friends_text,
+    bundle_theme_art,
     save_configuration,
 )
 
@@ -78,6 +79,7 @@ class SetupConfigTests(unittest.TestCase):
             "publicVoiceCategory",
             "helpCategory",
             "selfRolesCategory",
+            "alertsChannel",
             "xpChannel",
             "informationCategory",
             "announcementsCategory",
@@ -122,6 +124,19 @@ class SetupConfigTests(unittest.TestCase):
         restored = flatten_config(config, [])
         self.assertEqual(restored["rulesText"], values["rulesText"])
         self.assertEqual(restored["art.rules"], values["art.rules"])
+
+    def test_dashboard_art_is_bundled_with_installation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "chosen.gif"
+            source.write_bytes(b"GIF89a")
+            install = root / "install"
+            install.mkdir()
+            config = {"branding": {"art": {"rules": str(source)}}}
+            bundle_theme_art(config, base_dir=install)
+            relative = config["branding"]["art"]["rules"]
+            self.assertTrue(relative.startswith("Data/art/custom/rules-"))
+            self.assertEqual((install / relative).read_bytes(), b"GIF89a")
 
     def test_automatic_setup_can_create_verified_role_with_cleanup_enabled(self):
         values = self.valid_values()

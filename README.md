@@ -64,7 +64,8 @@ The wizard masks secret fields, validates related settings together, checks the
 bot's permissions and role hierarchy, reuses valid Project L resources, creates
 anything missing, and saves generated IDs to the local, Git-ignored
 `Data/config.json` and `Data/roles.json` files. Running setup again is
-idempotent and does not delete server channels.
+idempotent and preserves unrelated server channels. After the new public-voice
+panel is live, the bot removes only its own old fixed Custom Voice Chat if empty.
 
 The setup reuses the original managed welcome channel as `#verify`, preserving
 its history, and uses a separate `#welcome` for the bot's welcome messages.
@@ -84,12 +85,19 @@ button dialog. The original fixed Custom Voice Chat can be
 removed once it is empty and the public creation panel is working.
 
 The Branding page lets an owner select local PNG, JPG, or animated GIF artwork
-for managed panels and channel headers. It also contains editable server rules.
+for managed panels and channel headers. Setup copies selected art into
+`Data/art/custom` so it remains with that installation. It also contains editable server rules.
 Save and restart the bot to refresh its own existing embeds. The bundled GIFs
 cover Rules, Announcements, Giveaways, Server Boosts, and Stream Alerts.
 `Data/art/project_l_avatar.gif` is an optional animated bot avatar for manual
 upload in the Discord Developer Portal; setup will not overwrite the bot's
 profile image automatically.
+
+Stream Alerts is created even when YouTube and Twitch are left blank, so its
+animated header and place in Announcements are consistent on a fresh install.
+Notification checks stay disabled until an integration is configured. Run
+`python live_smoke_test.py` from the project virtual environment after the bot
+starts to verify managed panels and animated headers.
 
 The setup window combines descriptive pages into Server Layout and adds a
 Moderation page. Its optional anti-spam and Discord-invite filters are off by

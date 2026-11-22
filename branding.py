@@ -42,3 +42,12 @@ def resolve_art_path(key: str, config: dict | None = None) -> Path:
         if path.is_file() and path.suffix.casefold() in {".png", ".jpg", ".jpeg", ".gif"}:
             return path
     return default_art_path(key)
+
+
+def missing_art_warnings(config: dict) -> list[str]:
+    """Make missing bundled/theme artwork visible during setup."""
+    return [
+        f"{key.replace('_', ' ')} artwork is missing: {resolve_art_path(key, config)}"
+        for key in ART_KEYS
+        if not resolve_art_path(key, config).is_file()
+    ]

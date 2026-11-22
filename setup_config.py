@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import tempfile
+from hashlib import sha256
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -13,6 +15,7 @@ from typing import Any
 
 from config_loader import (
     AUTOMATIC_SETUP_VERSION,
+    BASE_DIR,
     CONFIG_PATH,
     ROLES_PATH,
     ConfigError,
@@ -22,7 +25,6 @@ from config_loader import (
 )
 from youtube_notifications import YouTubeSourceError, normalize_youtube_source
 from branding import ART_KEYS
-from config_loader import BASE_DIR
 
 EXAMPLE_CONFIG_PATH = CONFIG_PATH.with_name("config.example.json")
 
@@ -431,6 +433,45 @@ def _write_json_atomic(path: Path, value: Any) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def bundle_theme_art(config: dict[str, Any], *, base_dir: Path = BASE_DIR) -> None:
+    """Keep dashboard-selected art with the installation, not a Downloads path."""
+    art = config.get("branding", {}).get("art", {})
+    if not isinstance(art, dict):
+        return
+    base_dir = base_dir.resolve()
+    custom_dir = base_dir / "Data" / "art" / "custom"
+    for key in ART_KEYS:
+        selected = str(art.get(key, "") or "").strip()
+        if not selected:
+            continue
+        source = Path(selected).expanduser()
+        if not source.is_absolute():
+            source = base_dir / source
+        source = source.resolve(strict=True)
+        if source.suffix.casefold() not in {".png", ".jpg", ".jpeg", ".gif"}:
+            raise ConfigError(f"{key} art must be a PNG, JPG, or GIF.")
+        if source.stat().st_size > 8 * 1024 * 1024:
+            raise ConfigError(f"{key} art must be under 8 MiB.")
+        if source.is_relative_to(base_dir):
+            art[key] = source.relative_to(base_dir).as_posix()
+            continue
+        digest = sha256(source.read_bytes()).hexdigest()[:12]
+        custom_dir.mkdir(parents=True, exist_ok=True)
+        target = custom_dir / f"{key}-{digest}{source.suffix.casefold()}"
+        if not target.exists():
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{key}-", suffix=".tmp", dir=custom_dir,
+            )
+            os.close(descriptor)
+            temporary = Path(temporary_name)
+            try:
+                shutil.copy2(source, temporary)
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        art[key] = target.relative_to(base_dir).as_posix()
+
+
 def save_configuration(
     config: Mapping[str, Any],
     role_ids: list[int],
@@ -486,6 +527,7 @@ def configuration_status(
                     "helpChannel",
                     "helpCategory",
                     "selfRolesCategory",
+                    "alertsChannel",
                     "welcomeMessagesChannel",
                     "rulesChannel",
                     "announcementsChannel",

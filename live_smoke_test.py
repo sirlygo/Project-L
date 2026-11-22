@@ -27,6 +27,13 @@ EXPECTED_PANELS = {
     "tickets": frozenset({"ticket_help", "ticket_suggestions", "ticket_report"}),
 }
 VERIFY_COMPONENTS = frozenset({"verify"})
+HEADER_CHANNELS = {
+    "rules": "rulesChannel",
+    "announcements": "announcementsChannel",
+    "giveaways": "giveawaysChannel",
+    "boosts": "boostsChannel",
+    "stream_alerts": "alertsChannel",
+}
 
 
 def message_component_ids(message: Mapping[str, Any]) -> set[str]:
@@ -48,6 +55,21 @@ def has_bot_panel(
         int((message.get("author") or {}).get("id", 0) or 0) == bot_user_id
         and required.issubset(message_component_ids(message))
         for message in messages
+    )
+
+
+def has_bot_header(messages: list[Mapping[str, Any]], *, bot_user_id: int, kind: str) -> bool:
+    marker = f"Project L • Channel Header • {kind}"
+    return any(
+        int((message.get("author") or {}).get("id", 0) or 0) == bot_user_id
+        and any(
+            (embed.get("footer") or {}).get("text") == marker
+            and bool((embed.get("image") or {}).get("url"))
+            for embed in message.get("embeds", []) or []
+            if isinstance(embed, Mapping)
+        )
+        for message in messages
+        if isinstance(message, Mapping)
     )
 
 
@@ -97,6 +119,7 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "panels channel": managed.get("panelsChannel"),
         "self roles category": managed.get("selfRolesCategory"),
         "help category": managed.get("helpCategory"),
+        "stream alerts channel": managed.get("alertsChannel"),
         "private voice creation channel": managed.get("privateVoicePanelChannel"),
         "help channel": managed.get("helpChannel"),
         "general channel": managed.get("welcomeMessagesChannel"),
@@ -202,6 +225,15 @@ def run_live_smoke_test(*, timeout: float = 15) -> tuple[list[str], list[str]]:
             required = frozenset(f"selfrole:{group}:{index}" for index in range(len(choices)))
             if not has_bot_panel(messages, bot_user_id=bot_user_id, required=required):
                 errors.append(f"{group} self-role buttons are incomplete")
+    for kind, key in HEADER_CHANNELS.items():
+        channel_id = managed_id(config, key)
+        header_messages = _get_json(
+            f"channels/{channel_id}/messages?limit=100", token, timeout
+        )
+        if not isinstance(header_messages, list) or not has_bot_header(
+            header_messages, bot_user_id=bot_user_id, kind=kind,
+        ):
+            errors.append(f"{kind} animated header is missing")
     return errors, report.warnings
 
 

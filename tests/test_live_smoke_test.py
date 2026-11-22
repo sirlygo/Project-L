@@ -1,6 +1,6 @@
 import unittest
 
-from live_smoke_test import has_bot_panel, message_component_ids, missing_panel_names
+from live_smoke_test import has_bot_header, has_bot_panel, message_component_ids, missing_panel_names
 
 
 def message(author_id, *custom_ids):
@@ -59,6 +59,19 @@ class LiveSmokePanelTests(unittest.TestCase):
         self.assertFalse(
             has_bot_panel([message(99, "verify")], bot_user_id=7, required=frozenset({"verify"}))
         )
+
+    def test_channel_header_requires_bot_author_art_and_marker(self):
+        header = {
+            "author": {"id": "7"},
+            "embeds": [{
+                "footer": {"text": "Project L • Channel Header • rules"},
+                "image": {"url": "https://cdn.discordapp.com/rules.gif"},
+            }],
+        }
+        self.assertTrue(has_bot_header([header], bot_user_id=7, kind="rules"))
+        self.assertFalse(has_bot_header([header], bot_user_id=7, kind="boosts"))
+        header["embeds"][0]["image"] = {}
+        self.assertFalse(has_bot_header([header], bot_user_id=7, kind="rules"))
 
 
 if __name__ == "__main__":

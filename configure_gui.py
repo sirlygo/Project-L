@@ -10,7 +10,7 @@ import webbrowser
 from pathlib import Path
 
 from config_loader import ConfigError, load_role_ids
-from branding import ART_KEYS, DEFAULT_RULES
+from branding import ART_KEYS, DEFAULT_RULES, missing_art_warnings
 from discord_provisioning import (
     DiscordGuildAccessError,
     DiscordProvisioningError,
@@ -24,6 +24,7 @@ from discord_validation import DiscordValidationError, validate_live_discord_rep
 from setup_config import (
     EXAMPLE_CONFIG_PATH,
     build_configuration,
+    bundle_theme_art,
     configuration_status,
     flatten_config,
     load_editable_config,
@@ -574,6 +575,20 @@ class ProjectLSetupWizard:
             "Information has Verify, Welcome, and Rules. Announcements has updates, boosts, giveaways, and stream alerts. Community starts with General. Self Roles and Help each have their own category. Voice Creation has public and private naming buttons; public rooms are temporary.",
         )
         self._section(
+            "tickets", "Roles and level access",
+            "Setup creates Verified, Streamer, Admin, Moderator, color, pronoun, "
+            "platform, age, event-ping, and chat/voice milestone roles when missing. "
+            "Higher milestones retain the lower lounge roles. The bot never grants "
+            "Admin or Moderator to a member automatically.",
+        )
+        self._section(
+            "tickets", "Panels and voice rooms",
+            "When the bot starts, it installs Verify, Self Roles, Help tickets, "
+            "private/public voice buttons, editable Rules, and animated channel "
+            "headers. Streamers can name private rooms; verified members can name "
+            "temporary public rooms.",
+        )
+        self._section(
             "tickets",
             "Server Stats",
             "Five locked voice counters stay at the top of the server. The bot can view and refresh them; members cannot join them.",
@@ -586,7 +601,10 @@ class ProjectLSetupWizard:
         self._section(
             "tickets",
             "Safe reruns",
-            "Setup never deletes channels. It keeps valid saved resources, finds Project L resources by their managed marker, and creates only what is missing.",
+            "Setup keeps existing user channels and valid Project L resources, "
+            "reuses them by managed marker, and creates missing resources. It may "
+            "retire only the old empty fixed Custom Voice Chat after the new "
+            "public-voice button is installed.",
         )
 
     def _build_moderation_tab(self):
@@ -749,8 +767,9 @@ class ProjectLSetupWizard:
         self._section(
             "branding", "Your own theme artwork",
             "Choose a PNG, JPG, or animated GIF for any panel or channel header. "
-            "Leave a field blank to use the included Project L art. Save and restart "
-            "the bot to refresh existing managed messages in place.",
+            "Leave a field blank to use the included Project L art. Setup copies "
+            "selected files into this bot installation. Restart the bot after saving "
+            "to refresh existing managed messages in place.",
         )
         for key in ART_KEYS:
             field_key = f"art.{key}"
@@ -945,6 +964,7 @@ class ProjectLSetupWizard:
         if report.errors:
             raise ConfigError("\n".join(f"• {error}" for error in report.errors))
         warnings = list(report.warnings)
+        warnings.extend(missing_art_warnings(config))
         if provisioning_report is not None:
             warnings.extend(
                 f"Optional art: {warning}" for warning in provisioning_report.warnings
@@ -987,6 +1007,7 @@ class ProjectLSetupWizard:
             config, role_ids, warnings, provisioning = self.validated_live_values(
                 provision=True
             )
+            bundle_theme_art(config)
             save_configuration(config, role_ids)
         except DiscordGuildAccessError as exc:
             self.set_status(
@@ -1030,7 +1051,9 @@ class ProjectLSetupWizard:
             self.messagebox.showwarning(
                 "Setup saved with warnings",
                 f"Configuration saved; server setup {provisioning_summary}. "
-                "Project L is ready to continue starting. "
+                "Start or restart the bot to install panels, animated headers, "
+                "and your rules text. The animated bot avatar is a manual "
+                "Developer Portal upload. "
                 "Review these findings when practical:\n\n"
                 f"{format_validation_warnings(warnings)}",
                 parent=self.root,
@@ -1039,7 +1062,9 @@ class ProjectLSetupWizard:
             self.messagebox.showinfo(
                 "Setup complete",
                 f"Configuration saved; server setup {provisioning_summary}. "
-                "Project L is ready to continue starting.",
+                "Start or restart the bot to install panels, animated headers, "
+                "and your rules text. The animated bot avatar is a manual "
+                "Developer Portal upload.",
                 parent=self.root,
             )
         self.root.destroy()

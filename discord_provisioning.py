@@ -1418,47 +1418,39 @@ def provision_guild_resources(
         stats[key] = _channel_id(stat_channel)
 
     youtube_enabled = bool(str(updated_config.get("ytChannel", "")).strip())
-    twitch_enabled = bool(
-        str(updated_config.get("twitchChannelName", "")).strip()
-        or updated_config.get("friendTwitch")
+    friend_ids = [
+        _permission_value(friend.get("friendChannelId"))
+        for friend in updated_config.get("friendTwitch", [])
+        if isinstance(friend, Mapping)
+    ]
+    alerts = _ensure_resource(
+        snapshot=snapshot,
+        request_json=request_json,
+        token=token,
+        timeout=timeout,
+        report=report,
+        key="alerts",
+        label="social notification channel",
+        name="📡〢sᴛʀᴇᴀᴍ-ᴀʟᴇʀᴛs",
+        channel_type=TEXT_CHANNEL,
+        preferred_ids=[
+            _permission_value(managed.get("alertsChannel")),
+            _permission_value(updated_config.get("ytChannelId")),
+            _permission_value(updated_config.get("twChannelId")),
+            *friend_ids,
+        ],
+        parent_id=_channel_id(announcements_category),
+        overwrites=public_overwrites,
     )
-    if youtube_enabled or twitch_enabled:
-        friend_ids = [
-            _permission_value(friend.get("friendChannelId"))
-            for friend in updated_config.get("friendTwitch", [])
-            if isinstance(friend, Mapping)
-        ]
-        alerts = _ensure_resource(
-            snapshot=snapshot,
-            request_json=request_json,
-            token=token,
-            timeout=timeout,
-            report=report,
-            key="alerts",
-            label="social notification channel",
-            name="📡〢sᴛʀᴇᴀᴍ-ᴀʟᴇʀᴛs",
-            channel_type=TEXT_CHANNEL,
-            preferred_ids=[
-                _permission_value(managed.get("alertsChannel")),
-                _permission_value(updated_config.get("ytChannelId")),
-                _permission_value(updated_config.get("twChannelId")),
-                *friend_ids,
-            ],
-            parent_id=_channel_id(announcements_category),
-            overwrites=public_overwrites,
-        )
-        alert_id = _channel_id(alerts)
-        managed["alertsChannel"] = alert_id
-        updated_config["ytChannelId"] = alert_id if youtube_enabled else 0
-        updated_config["twChannelId"] = (
-            alert_id if str(updated_config.get("twitchChannelName", "")).strip() else 0
-        )
-        for friend in updated_config.get("friendTwitch", []):
-            if isinstance(friend, dict):
-                friend["friendChannelId"] = alert_id
-    else:
-        updated_config["ytChannelId"] = 0
-        updated_config["twChannelId"] = 0
+    alert_id = _channel_id(alerts)
+    managed["alertsChannel"] = alert_id
+    updated_config["ytChannelId"] = alert_id if youtube_enabled else 0
+    updated_config["twChannelId"] = (
+        alert_id if str(updated_config.get("twitchChannelName", "")).strip() else 0
+    )
+    for friend in updated_config.get("friendTwitch", []):
+        if isinstance(friend, dict):
+            friend["friendChannelId"] = alert_id
 
     emoji_report = install_bundled_emojis(
         snapshot.guild_id,
