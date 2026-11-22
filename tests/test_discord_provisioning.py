@@ -190,7 +190,8 @@ class DiscordProvisioningTests(unittest.TestCase):
         )
         for key in (
             "welcomeMessagesChannel", "rulesChannel", "announcementsChannel",
-            "boostsChannel", "giveawaysChannel", "xpChannel", "publicVoiceChannel",
+            "boostsChannel", "giveawaysChannel", "xpChannel", "publicVoicePanelChannel",
+            "voiceHubCategory", "publicVoiceCategory",
         ):
             self.assertTrue(config["managedResources"][key])
         self.assertTrue(config["managedResources"]["staffRoles"]["admin"])
@@ -201,8 +202,10 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertEqual(len(config["managedResources"]["levelRoles"]["chat"]), 3)
         self.assertEqual(len(config["managedResources"]["levelRoles"]["voice"]), 3)
         for key, name in (
-            ("privateVoicePanelChannel", "create-private-voice-channel"),
-            ("helpChannel", "help"),
+            ("privateVoicePanelChannel", "🔒〢ᴄʀᴇᴀᴛᴇ-ᴘʀɪᴠᴀᴛᴇ"),
+            ("publicVoicePanelChannel", "🎙️〢ᴄʀᴇᴀᴛᴇ-ᴘᴜʙʟɪᴄ"),
+            ("panelsChannel", "🎭〢sᴇʟғ-ʀᴏʟᴇs"),
+            ("helpChannel", "🆘〢ʜᴇʟᴘ"),
         ):
             channel_id = config["managedResources"][key]
             channel = next(item for item in self.api.channels if int(item["id"]) == channel_id)

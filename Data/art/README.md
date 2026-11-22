@@ -9,6 +9,7 @@ third-party image URLs.
 | `project_l_server_banner.png` | 1920 x 1080, PNG | Discord server banner (16:9) |
 | `verification.png` | 1200 x 400, PNG | Verification panel, automatic |
 | `private_voice.png` | 1200 x 400, PNG | Private-voice panel, automatic |
+| `public_voice.png` | Wide PNG | Public voice-creation panel, automatic |
 | `tickets.png` | 1200 x 400, PNG | Ticket panel, automatic |
 | `self_roles_colors.gif` | 900 px wide, GIF | Color role panel |
 | `self_roles_pronouns.gif` | 900 px wide, GIF | Pronoun role panel |
@@ -32,7 +33,7 @@ Each emoji PNG must be at most 256 KiB and no larger than 512 x 512. Invalid or
 missing optional art is reported as a warning and never prevents core server
 setup.
 
-The bot uploads the three panel banners as attachments on the same messages as
+The bot uploads the four panel banners as attachments on the same messages as
 their embeds. This makes the image URLs durable and keeps a missing art file
 from affecting the buttons. `Commands/panels.py` falls back to a text-only
 embed if an optional banner is unavailable.

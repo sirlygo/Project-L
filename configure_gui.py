@@ -567,7 +567,7 @@ class ProjectLSetupWizard:
         self._section(
             "tickets",
             "Public resources",
-            "An Information category with #verify, #welcome, and rules; a separate Announcements category for announcements, boosts, and giveaways; and a Community category for chat, roles, voice, and XP.",
+            "Information has #verify, #welcome, and rules. Announcements has updates, boosts, giveaways, and stream alerts. Community has chat and self-roles. Voice Creation has the public and private create buttons; public rooms are temporary.",
         )
         self._section(
             "tickets",

@@ -929,6 +929,9 @@ def configuration_without_managed_channels(
             "informationCategory",
             "announcementsCategory",
             "generalChatChannel",
+            "voiceHubCategory",
+            "publicVoiceCategory",
+            "publicVoicePanelChannel",
         ):
             clean[MANAGED_RESOURCES_KEY][child] = 0
     for friend in clean.get("friendTwitch", []):
@@ -1119,7 +1122,7 @@ def provision_guild_resources(
         report=report,
         key="welcome",
         label="welcome channel",
-        name="verify",
+        name="✅〢ᴠᴇʀɪғʏ",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(updated_config.get("welcome"))],
         parent_id=_channel_id(information),
@@ -1130,7 +1133,7 @@ def provision_guild_resources(
     updated_config["welcome_images"] = 0
 
     community_channels = (
-        ("welcomeMessagesChannel", "welcome", "welcome", None, information),
+        ("welcomeMessagesChannel", "👋〢ᴡᴇʟᴄᴏᴍᴇ", "welcome", None, information),
         ("rulesChannel", "📜〢ʀᴜʟᴇs", "rules", public_overwrites, information),
         ("announcementsChannel", "📢〢ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs", "announcements", public_overwrites, announcements_category),
         ("boostsChannel", "🚀〢sᴇʀᴠᴇʀ-ʙᴏᴏsᴛs", "server boosts", public_overwrites, announcements_category),
@@ -1169,7 +1172,7 @@ def provision_guild_resources(
         lounge = _ensure_resource(
             snapshot=snapshot, request_json=request_json, token=token,
             timeout=timeout, report=report, key=f"level-{level}-lounge",
-            label=f"level {level} lounge", name=f"level-{level}-lounge",
+            label=f"level {level} lounge", name=f"✨〢ʟᴇᴠᴇʟ-{level}-ʟᴏᴜɴɢᴇ",
             channel_type=TEXT_CHANNEL,
             preferred_ids=[_permission_value(lounges.get(str(level)))],
             parent_id=_channel_id(community), overwrites=level_overwrites,
@@ -1177,15 +1180,23 @@ def provision_guild_resources(
         )
         lounges[str(level)] = _channel_id(lounge)
 
-    public_voice = _ensure_resource(
+    voice_hub = _ensure_resource(
         snapshot=snapshot, request_json=request_json, token=token,
-        timeout=timeout, report=report, key="public-voice",
-        label="public custom voice chat", name="Custom Voice Chat",
-        channel_type=VOICE_CHANNEL,
-        preferred_ids=[_permission_value(managed.get("publicVoiceChannel"))],
-        parent_id=_channel_id(community),
+        timeout=timeout, report=report, key="voice-hub-category",
+        label="voice creation category", name="✦▬▬ ☆ 𝐕𝐎𝐈𝐂𝐄 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("voiceHubCategory"))],
     )
-    managed["publicVoiceChannel"] = _channel_id(public_voice)
+    managed["voiceHubCategory"] = _channel_id(voice_hub)
+
+    public_voice_category = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="public-voice-category",
+        label="public voice category", name="✦▬▬ ☆ 𝐏𝐔𝐁𝐋𝐈𝐂 𝐕𝐎𝐈𝐂𝐄 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("publicVoiceCategory"))],
+    )
+    managed["publicVoiceCategory"] = _channel_id(public_voice_category)
 
     panels = _ensure_resource(
         snapshot=snapshot,
@@ -1195,7 +1206,7 @@ def provision_guild_resources(
         report=report,
         key="panels",
         label="setup panels channel",
-        name="project-l-panels",
+        name="🎭〢sᴇʟғ-ʀᴏʟᴇs",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(managed.get("panelsChannel"))],
         parent_id=_channel_id(community),
@@ -1211,13 +1222,23 @@ def provision_guild_resources(
         report=report,
         key="private-voice-panel",
         label="private voice creation channel",
-        name="create-private-voice-channel",
+        name="🔒〢ᴄʀᴇᴀᴛᴇ-ᴘʀɪᴠᴀᴛᴇ",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(managed.get("privateVoicePanelChannel"))],
-        parent_id=_channel_id(community),
+        parent_id=_channel_id(voice_hub),
         overwrites=public_overwrites,
     )
     managed["privateVoicePanelChannel"] = _channel_id(private_voice_panel)
+
+    public_voice_panel = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="public-voice-panel",
+        label="public voice creation channel", name="🎙️〢ᴄʀᴇᴀᴛᴇ-ᴘᴜʙʟɪᴄ",
+        channel_type=TEXT_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("publicVoicePanelChannel"))],
+        parent_id=_channel_id(voice_hub), overwrites=public_overwrites,
+    )
+    managed["publicVoicePanelChannel"] = _channel_id(public_voice_panel)
 
     help_panel = _ensure_resource(
         snapshot=snapshot,
@@ -1227,7 +1248,7 @@ def provision_guild_resources(
         report=report,
         key="help-panel",
         label="help channel",
-        name="help",
+        name="🆘〢ʜᴇʟᴘ",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(managed.get("helpChannel"))],
         parent_id=_channel_id(community),
@@ -1244,7 +1265,7 @@ def provision_guild_resources(
         report=report,
         key="logs",
         label="staff log channel",
-        name="project-l-logs",
+        name="🛡️〢sᴛᴀғғ-ʟᴏɢs",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[
             _permission_value(updated_config.get("logs")),
@@ -1269,7 +1290,7 @@ def provision_guild_resources(
         report=report,
         key="transcripts",
         label="ticket transcript channel",
-        name="ticket-transcripts",
+        name="📂〢ᴛʀᴀɴsᴄʀɪᴘᴛs",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(updated_config.get("transcripts"))],
         parent_id=_channel_id(staff),
@@ -1395,7 +1416,7 @@ def provision_guild_resources(
             report=report,
             key="alerts",
             label="social notification channel",
-            name="project-l-alerts",
+            name="📡〢sᴛʀᴇᴀᴍ-ᴀʟᴇʀᴛs",
             channel_type=TEXT_CHANNEL,
             preferred_ids=[
                 _permission_value(managed.get("alertsChannel")),
@@ -1403,7 +1424,7 @@ def provision_guild_resources(
                 _permission_value(updated_config.get("twChannelId")),
                 *friend_ids,
             ],
-            parent_id=_channel_id(community),
+            parent_id=_channel_id(announcements_category),
             overwrites=public_overwrites,
         )
         alert_id = _channel_id(alerts)

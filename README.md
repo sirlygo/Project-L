@@ -38,10 +38,11 @@ wizard.
    return to setup, choose **Check Readiness**, then **Save & Create**.
 5. Project L creates or reuses its verified and streamer roles, secured
    categories and channels, statistics counters, a self-roles channel, a
-   `create-private-voice-channel` panel channel, and a `help` ticket channel. It
+   private-voice creation panel, and a help ticket channel. It
    also creates `#verify`, `#welcome`, a general chat channel, rules,
    announcements, boosts, giveaways, XP progress, three level lounges,
-   and a public Custom Voice Chat. It
+   and a public voice-creation panel. Members can name a public voice room;
+   temporary rooms are deleted when empty. It
    remembers all generated IDs automatically; no channel or category IDs are
    requested.
 6. Start the bot:
@@ -70,6 +71,12 @@ its history, and uses a separate `#welcome` for the bot's welcome messages.
 An Information category holds verify, welcome, and rules; an Announcements
 category holds announcements, boosts, and giveaways. Rules and announcements
 are read-only for regular members; add your own text after setup.
+
+The Voice Creation category holds short `create-private` and
+`create-public` panel channels. Public rooms appear in Public Voice, are visible
+to verified members, and are removed after everyone leaves. A never-joined
+room expires after two minutes. The original fixed Custom Voice Chat can be
+removed once it is empty and the public creation panel is working.
 
 The setup window combines descriptive pages into Server Layout and adds a
 Moderation page. Its optional anti-spam and Discord-invite filters are off by

@@ -39,6 +39,9 @@
     "informationCategory": 0,
     "announcementsCategory": 0,
     "generalChatChannel": 0,
+    "voiceHubCategory": 0,
+    "publicVoiceCategory": 0,
+    "publicVoicePanelChannel": 0,
     "levelLounges": {"5": 0, "15": 0, "30": 0},
     "staffRoles": {"admin": 0, "mod": 0},
     "levelRoles": {

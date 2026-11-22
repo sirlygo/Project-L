@@ -23,6 +23,7 @@ from self_roles import ROLE_GROUPS
 
 EXPECTED_PANELS = {
     "private voice": frozenset({"voicechannel"}),
+    "public voice": frozenset({"publicvoicecreate"}),
     "tickets": frozenset({"ticket_help", "ticket_suggestions", "ticket_report"}),
 }
 VERIFY_COMPONENTS = frozenset({"verify"})
@@ -101,11 +102,13 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "announcements channel": managed.get("announcementsChannel"),
         "boosts channel": managed.get("boostsChannel"),
         "giveaways channel": managed.get("giveawaysChannel"),
-        "public voice channel": managed.get("publicVoiceChannel"),
         "XP progress channel": managed.get("xpChannel"),
         "information category": managed.get("informationCategory"),
         "announcements category": managed.get("announcementsCategory"),
         "general chat channel": managed.get("generalChatChannel"),
+        "voice creation category": managed.get("voiceHubCategory"),
+        "public voice category": managed.get("publicVoiceCategory"),
+        "public voice creation channel": managed.get("publicVoicePanelChannel"),
     }
     for key, value in (config.get("tickets") or {}).items():
         required[f"ticket resource {key}"] = value
@@ -178,6 +181,7 @@ def run_live_smoke_test(*, timeout: float = 15) -> tuple[list[str], list[str]]:
     errors.extend(f"{name} panel is missing" for name in missing)
     for kind, channel_id in (
         ("private voice", managed_id(config, "privateVoicePanelChannel")),
+        ("public voice", managed_id(config, "publicVoicePanelChannel")),
         ("tickets", managed_id(config, "helpChannel")),
     ):
         target_messages = _get_json(

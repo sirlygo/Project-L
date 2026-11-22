@@ -416,14 +416,14 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
             first = await ensure_automatic_panels(client)
             second = await ensure_automatic_panels(client)
 
-        self.assertEqual(first.created, ["verification", "private_voice", "tickets"])
+        self.assertEqual(first.created, ["verification", "private_voice", "public_voice", "tickets"])
         self.assertEqual(first.failed, [])
         self.assertEqual(second.created, [])
         self.assertEqual(
             second.existing,
-            ["verification", "private_voice", "tickets"],
+            ["verification", "private_voice", "public_voice", "tickets"],
         )
-        self.assertEqual(len(panel_channel.messages), 2)
+        self.assertEqual(len(panel_channel.messages), 3)
         self.assertEqual(len(welcome_channel.messages), 1)
         self.assertEqual(
             panel_kind_for_message(welcome_channel.messages[0], bot_user.id),

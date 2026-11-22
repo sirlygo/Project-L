@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from config_loader import load_config, load_role_ids
 from self_roles import ROLE_GROUPS, managed_role_ids
+from Commands.public_voice import PublicVoiceNameModal
 
 TICKET_TOPIC_PATTERN = re.compile(r"^ticket-owner:(\d+)$")
 
@@ -192,6 +193,10 @@ class OnInteractionEvent(commands.Cog):
                 super().__init__(timeout=None)
                 self.add_item(discord.ui.Button(emoji="🗑️", label=f"Delete", style=discord.ButtonStyle.grey, custom_id=f"delete"))
                 self.add_item(discord.ui.Button(emoji="🔓", label=f"Reopen", style=discord.ButtonStyle.grey, custom_id=f"reopen"))
+
+        if interaction.data['custom_id'] == "publicvoicecreate":
+            await interaction.response.send_modal(PublicVoiceNameModal())
+            return
 
         if interaction.data['custom_id'] == "voicechannel":
             await interaction.response.defer(thinking=False, ephemeral=True)

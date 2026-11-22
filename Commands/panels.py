@@ -19,6 +19,7 @@ PANEL_ART_DIR = BASE_DIR / "Data" / "art"
 PANEL_ART_IMAGES = {
     "verification": PANEL_ART_DIR / "verification.png",
     "private_voice": PANEL_ART_DIR / "private_voice.png",
+    "public_voice": PANEL_ART_DIR / "public_voice.png",
     "tickets": PANEL_ART_DIR / "tickets.png",
     "self_roles_header": SELF_ROLES_IMAGE,
     **{
@@ -54,6 +55,7 @@ SELF_ROLE_PANEL_TITLES = frozenset(
 PANEL_COMPONENT_IDS = {
     "verification": frozenset({"verify"}),
     "private_voice": frozenset({"voicechannel"}),
+    "public_voice": frozenset({"publicvoicecreate"}),
     "tickets": frozenset({"ticket_help", "ticket_suggestions", "ticket_report"}),
     "reaction_roles": frozenset({"roles"}),
     **{f"self_roles:{group}": frozenset({f"selfrole:{group}:0"}) for group in ROLE_GROUPS},
@@ -261,6 +263,15 @@ class PrivateVoiceView(discord.ui.View):
         )
 
 
+class PublicVoiceView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(discord.ui.Button(
+            emoji="🎙️", label="Create public voice chat",
+            style=discord.ButtonStyle.success, custom_id="publicvoicecreate",
+        ))
+
+
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -360,6 +371,19 @@ def private_voice_embed(colour) -> discord.Embed:
     return embed
 
 
+def public_voice_embed(colour) -> discord.Embed:
+    embed = discord.Embed(
+        title="Public voice chats",
+        description=(
+            "Choose a name for a public voice chat. Anyone verified can join. "
+            "The room is removed when everyone leaves."
+        ),
+        colour=colour,
+    )
+    embed.set_footer(text="Project L • Public Voice")
+    return embed
+
+
 def ticket_embed(colour) -> discord.Embed:
     embed = discord.Embed(
         title="Support tickets",
@@ -438,6 +462,10 @@ async def send_managed_panel(kind: str, channel, guild, colour):
             channel,
             embed=private_voice_embed(colour),
             view=PrivateVoiceView(),
+        )
+    if kind == "public_voice":
+        return await send_panel_with_local_art(
+            kind, channel, embed=public_voice_embed(colour), view=PublicVoiceView(),
         )
     if kind == "tickets":
         return await send_panel_with_local_art(
@@ -584,6 +612,7 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
 
     dedicated_channels = {
         "private_voice": int(config.get("managedResources", {}).get("privateVoicePanelChannel", 0) or panels_id),
+        "public_voice": int(config.get("managedResources", {}).get("publicVoicePanelChannel", 0) or panels_id),
         "tickets": int(config.get("managedResources", {}).get("helpChannel", 0) or panels_id),
     }
     for kind, channel_id in dedicated_channels.items():

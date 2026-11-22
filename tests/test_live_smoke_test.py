@@ -26,6 +26,7 @@ class LiveSmokePanelTests(unittest.TestCase):
     def test_all_standard_panels_are_detected(self):
         messages = [
             message(7, "voicechannel"),
+            message(7, "publicvoicecreate"),
             message(7, "ticket_help", "ticket_suggestions", "ticket_report"),
         ]
         self.assertEqual(
@@ -41,6 +42,7 @@ class LiveSmokePanelTests(unittest.TestCase):
         messages = [
             message(99, "verify"),
             message(7, "voicechannel"),
+            message(7, "publicvoicecreate"),
             message(7, "ticket_help", "ticket_suggestions", "ticket_report"),
         ]
         missing = missing_panel_names(

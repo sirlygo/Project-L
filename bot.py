@@ -366,7 +366,8 @@ async def on_ready():
         managed = config.get("managedResources", {})
         category_order = (
             "statsCategory", "informationCategory", "announcementsCategory",
-            "communityCategory", "staffCategory", "modmail", "voicecategory",
+            "communityCategory", "voiceHubCategory", "publicVoiceCategory",
+            "voicecategory", "staffCategory", "modmail",
         )
         ordered_ids = [
             int(config.get(key, 0) if key in ("modmail", "voicecategory") else managed.get(key, 0) or 0)
