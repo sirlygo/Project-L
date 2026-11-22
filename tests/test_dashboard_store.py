@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dashboard_store import (
-    create_ticket_record, list_appeals, list_cases, list_tickets, overview,
+    add_staff_note, create_ticket_record, list_appeals, list_cases, list_staff_notes,
+    list_tickets, overview,
     record_case, record_staff_response, review_appeal, submit_appeal, update_ticket,
     get_transcript, save_transcript, search_transcripts,
 )
@@ -19,6 +20,9 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(list_cases(1)[0]["id"], case_id)
             self.assertEqual(list_cases(1, member_id=2)[0]["action"], "warn")
             self.assertEqual(list_cases(2), [])
+            note_id = add_staff_note(1, "case", case_id, 3, "Internal context")
+            self.assertEqual(list_staff_notes(1, "case", case_id)[0]["id"], note_id)
+            self.assertEqual(list_staff_notes(2, "case", case_id), [])
 
             create_ticket_record(10, 1, 2, "help", {"Issue": "Can’t join"})
             self.assertEqual(list_tickets(1)[0]["answers"]["Issue"], "Can’t join")
@@ -37,6 +41,7 @@ class DashboardStoreTests(unittest.TestCase):
                 "cases": 1, "tickets": 1, "appeals": 1,
                 "open_tickets": 0, "open_appeals": 0,
                 "avg_first_response_seconds": 0,
+                "cases_last_7_days": 1, "tickets_last_7_days": 1,
             })
             save_transcript(1, 10, "The member needs help joining voice chat.")
             self.assertEqual(len(search_transcripts(1, "voice chat")), 1)

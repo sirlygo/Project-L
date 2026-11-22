@@ -37,6 +37,15 @@ def _connect():
         "channel_id INTEGER PRIMARY KEY, guild_id INTEGER NOT NULL, "
         "content TEXT NOT NULL, created_at INTEGER NOT NULL);"
         "CREATE INDEX IF NOT EXISTS transcripts_guild ON transcripts(guild_id,created_at);"
+        "CREATE TABLE IF NOT EXISTS staff_notes ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, "
+        "subject_type TEXT NOT NULL, subject_id INTEGER NOT NULL, "
+        "author_id INTEGER NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS staff_notes_subject ON "
+        "staff_notes(guild_id,subject_type,subject_id,created_at);"
+        "CREATE TABLE IF NOT EXISTS config_history ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, "
+        "actor_id INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at INTEGER NOT NULL);"
     )
     columns = {row[1] for row in db.execute("PRAGMA table_info(tickets)")}
     if "first_staff_response_at" not in columns:
@@ -76,6 +85,12 @@ def list_cases(guild_id, *, member_id=None, limit=100):
                 (guild_id, min(limit, 200)),
             ).fetchall()
         return [dict(row) for row in rows]
+
+
+def case_exists(guild_id, case_id):
+    with closing(_connect()) as db:
+        return db.execute("SELECT 1 FROM cases WHERE guild_id=? AND id=?",
+                          (guild_id, case_id)).fetchone() is not None
 
 
 def create_ticket_record(channel_id, guild_id, owner_id, kind, answers=None):
@@ -144,6 +159,48 @@ def ticket_exists(guild_id, channel_id):
         ).fetchone() is not None
 
 
+def add_staff_note(guild_id, subject_type, subject_id, author_id, body):
+    if subject_type not in {"ticket", "case"} or not str(body).strip():
+        raise ValueError("Invalid staff note")
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "INSERT INTO staff_notes(guild_id,subject_type,subject_id,author_id,body,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (guild_id, subject_type, subject_id, author_id, str(body).strip()[:2000], int(time.time())),
+        ).lastrowid
+
+
+def list_staff_notes(guild_id, subject_type, subject_id):
+    with closing(_connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT * FROM staff_notes WHERE guild_id=? AND subject_type=? AND subject_id=? "
+            "ORDER BY id DESC LIMIT 100", (guild_id, subject_type, subject_id),
+        )]
+
+
+def record_config_snapshot(guild_id, actor_id, config):
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "INSERT INTO config_history(guild_id,actor_id,snapshot,created_at) VALUES(?,?,?,?)",
+            (guild_id, actor_id, json.dumps(config, ensure_ascii=False), int(time.time())),
+        ).lastrowid
+
+
+def list_config_history(guild_id):
+    with closing(_connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT id,guild_id,actor_id,created_at FROM config_history "
+            "WHERE guild_id=? ORDER BY id DESC LIMIT 30", (guild_id,),
+        )]
+
+
+def purge_transcripts(guild_id, older_than):
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "DELETE FROM transcripts WHERE guild_id=? AND created_at<?", (guild_id, older_than),
+        ).rowcount
+
+
 def submit_appeal(guild_id, member_id, message, case_id=None):
     now = int(time.time())
     with closing(_connect()) as db, db:
@@ -208,6 +265,14 @@ def overview(guild_id):
         counts["avg_first_response_seconds"] = db.execute(
             "SELECT CAST(AVG(first_staff_response_at-created_at) AS INTEGER) FROM tickets "
             "WHERE guild_id=? AND first_staff_response_at IS NOT NULL", (guild_id,),
+        ).fetchone()[0]
+        counts["cases_last_7_days"] = db.execute(
+            "SELECT COUNT(*) FROM cases WHERE guild_id=? AND created_at>=?",
+            (guild_id, int(time.time()) - 604800),
+        ).fetchone()[0]
+        counts["tickets_last_7_days"] = db.execute(
+            "SELECT COUNT(*) FROM tickets WHERE guild_id=? AND created_at>=?",
+            (guild_id, int(time.time()) - 604800),
         ).fetchone()[0]
     return counts
 

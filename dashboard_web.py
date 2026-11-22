@@ -21,8 +21,9 @@ from PIL import Image
 from branding import ART_KEYS, DEFAULT_RULES
 from config_loader import BASE_DIR, CONFIG_PATH, load_config
 from dashboard_store import (
-    get_transcript, list_appeals, list_cases, list_tickets, overview,
-    review_appeal, search_transcripts, submit_appeal, ticket_exists, update_ticket,
+    add_staff_note, case_exists, get_transcript, list_appeals, list_cases, list_config_history,
+    list_staff_notes, list_tickets, overview, record_config_snapshot, review_appeal,
+    search_transcripts, submit_appeal, ticket_exists, update_ticket,
 )
 from moderation_policy import validate_escalation
 from ticket_forms import DEFAULT_FORMS, validate_forms
@@ -110,6 +111,9 @@ class Dashboard:
             web.post("/api/art/{key}", self.upload_art),
             web.get("/api/cases", self.api_cases),
             web.get("/api/tickets", self.api_tickets),
+            web.get("/api/notes/{kind}/{subject_id}", self.get_notes),
+            web.post("/api/notes/{kind}/{subject_id}", self.post_note),
+            web.get("/api/config-history", self.config_history),
             web.patch("/api/tickets/{channel_id}", self.patch_ticket),
             web.get("/api/transcripts", self.api_transcripts),
             web.get("/api/transcripts/{channel_id}", self.download_transcript),
@@ -249,7 +253,42 @@ class Dashboard:
         data = overview(guild.id)
         data["members"] = guild.member_count or len(guild.members)
         data["in_voice"] = sum(len(channel.members) for channel in guild.voice_channels)
+        data["dashboard_online"] = True
         return web.json_response(data)
+
+    async def config_history(self, request):
+        identity = await self._require(request, owner=True)
+        return web.json_response({"history": list_config_history(identity["guild"].id)})
+
+    async def get_notes(self, request):
+        identity = await self._require(request, staff=True)
+        try:
+            kind = request.match_info["kind"]
+            subject_id = int(request.match_info["subject_id"])
+            if kind not in {"ticket", "case"}:
+                raise ValueError("Unknown note type")
+            if kind == "ticket" and not ticket_exists(identity["guild"].id, subject_id):
+                return _json_error("Ticket not found.", 404)
+            if kind == "case" and not case_exists(identity["guild"].id, subject_id):
+                return _json_error("Case not found.", 404)
+        except ValueError as exc:
+            return _json_error(str(exc))
+        return web.json_response({"notes": list_staff_notes(identity["guild"].id, kind, subject_id)})
+
+    async def post_note(self, request):
+        identity = await self._require(request, staff=True)
+        check = await self.get_notes(request)
+        if check.status != 200:
+            return check
+        try:
+            body = str((await request.json()).get("body", "")).strip()
+            if not 1 <= len(body) <= 2000:
+                raise ValueError("Note must be 1–2000 characters.")
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            return _json_error(str(exc))
+        note_id = add_staff_note(identity["guild"].id, request.match_info["kind"],
+                                 int(request.match_info["subject_id"]), identity["user_id"], body)
+        return web.json_response({"id": note_id}, status=201)
 
     async def get_settings(self, request):
         await self._require(request, owner=True)
@@ -299,12 +338,18 @@ class Dashboard:
             workspace = {
                 "priorities": priorities,
                 "searchableTranscripts": bool(tickets.get("searchableTranscripts", False)),
+                "responseTargetMinutes": max(0, min(10080, int(tickets.get("responseTargetMinutes", 0)))),
+                "transcriptRetentionDays": max(0, min(365, int(tickets.get("transcriptRetentionDays", 0)))),
                 "forms": validate_forms(tickets.get("forms") or DEFAULT_FORMS),
             }
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             return _json_error(str(exc))
         async with self.lock:
             config = load_config()
+            record_config_snapshot(config["guildId"], (await self._identity(request))["user_id"], {
+                "branding": config.get("branding"), "moderation": config.get("moderation"),
+                "ticketWorkspace": config.get("ticketWorkspace"),
+            })
             config.setdefault("branding", {})["rulesText"] = rules
             config["moderation"] = moderation
             config["ticketWorkspace"] = workspace
