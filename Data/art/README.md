@@ -37,6 +37,13 @@ their embeds. This makes the image URLs durable and keeps a missing art file
 from affecting the buttons. `Commands/panels.py` falls back to a text-only
 embed if an optional banner is unavailable.
 
+The five self-role GIFs are 16-frame, looping animations with a moving neon
+highlight, encoded from their matching PNG originals by
+`scripts/encode_self_role_gifs.py`. When a GIF changes, the bot includes its
+content digest in the attachment filename and refreshes existing panels in
+place at startup. Discord's client setting to reduce motion or disable GIF
+autoplay may still show only a still preview.
+
 Two established assets remain one directory above this folder:
 
 - `../welcome.jpg` is 1024 x 500 and is composited with each new member's

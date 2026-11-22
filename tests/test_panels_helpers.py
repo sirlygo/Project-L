@@ -1,4 +1,5 @@
 import unittest
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import discord
 
 from Commands.panels import (
+    PANEL_ART_IMAGES,
     BuiltinSelfRoleView,
     ensure_automatic_panels,
     is_self_role_panel_message,
@@ -105,11 +107,13 @@ class PanelRepairTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(repaired, 1)
         self.assertEqual(failures, [])
+        digest = sha256(PANEL_ART_IMAGES["self_roles:pronouns"].read_bytes()).hexdigest()[:10]
+        filename = f"self_roles-pronouns-123-{digest}.gif"
         self.assertEqual(
             edits[0]["embed"].image.url,
-            "attachment://self_roles-pronouns-123.gif",
+            f"attachment://{filename}",
         )
-        self.assertEqual(edits[0]["attachments"][0].filename, "self_roles-pronouns-123.gif")
+        self.assertEqual(edits[0]["attachments"][0].filename, filename)
 
     async def test_repair_preserves_unrelated_attachments_and_components(self):
         unrelated = SimpleNamespace(filename="rules.pdf")
@@ -132,19 +136,22 @@ class PanelRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((repaired, failures), (1, []))
         sent = message.edit.await_args.kwargs
         self.assertIs(sent["attachments"][0], unrelated)
-        self.assertEqual(sent["attachments"][1].filename, "self_roles-platform-456.gif")
+        digest = sha256(PANEL_ART_IMAGES["self_roles:platform"].read_bytes()).hexdigest()[:10]
+        self.assertEqual(sent["attachments"][1].filename, f"self_roles-platform-456-{digest}.gif")
         self.assertIs(message.components, components)
         self.assertNotIn("view", sent)
 
     async def test_repair_is_idempotent_when_attachment_is_current(self):
+        digest = sha256(PANEL_ART_IMAGES["self_roles:pings"].read_bytes()).hexdigest()[:10]
+        filename = f"self_roles-pings-789-{digest}.gif"
         embed = discord.Embed(title="Server Notifications")
-        embed.set_image(url="attachment://self_roles-pings-789.gif")
+        embed.set_image(url=f"attachment://{filename}")
         message = SimpleNamespace(
             id=789,
             author=SimpleNamespace(id=10),
             embeds=[embed],
             components=[object()],
-            attachments=[SimpleNamespace(filename="self_roles-pings-789.gif")],
+            attachments=[SimpleNamespace(filename=filename)],
             edit=AsyncMock(),
         )
 
@@ -188,7 +195,8 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sent), 5)
         self.assertEqual(len(sent[-1]["view"].children), 2)
         for group, message in zip(ROLE_GROUPS, sent):
-            filename = f"project_l_self_roles_{group}.gif"
+            filename = message["file"].filename
+            self.assertRegex(filename, rf"^project_l_self_roles_{group}_[0-9a-f]{{10}}\.gif$")
             self.assertEqual(message["file"].filename, filename)
             self.assertEqual(message["embed"].image.url, f"attachment://{filename}")
 
@@ -258,6 +266,33 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
             edited["attachments"][-1].filename,
             "project_l_verification.png",
         )
+
+    async def test_changed_self_role_gif_replaces_old_attachment(self):
+        from Commands.panels import _managed_panel_art_filename
+
+        with TemporaryDirectory() as temp_dir:
+            art_path = Path(temp_dir) / "self_roles_colors.gif"
+            art_path.write_bytes(b"animated version 1")
+            with patch.dict("Commands.panels.PANEL_ART_IMAGES", {"self_roles:colors": art_path}):
+                old_name = _managed_panel_art_filename("self_roles:colors")
+                art_path.write_bytes(b"animated version 2")
+                new_name = _managed_panel_art_filename("self_roles:colors")
+                self.assertNotEqual(old_name, new_name)
+                old_attachment = SimpleNamespace(filename=old_name)
+                unrelated = SimpleNamespace(filename="keep_this.txt")
+                embed = discord.Embed(title="Color Roles")
+                embed.set_image(url=f"attachment://{old_name}")
+                message = SimpleNamespace(
+                    embeds=[embed],
+                    attachments=[old_attachment, unrelated],
+                    edit=AsyncMock(),
+                )
+                updated = await repair_managed_panel_art(message, "self_roles:colors")
+
+        self.assertTrue(updated)
+        edited = message.edit.await_args.kwargs
+        self.assertEqual(edited["embed"].image.url, f"attachment://{new_name}")
+        self.assertEqual([item.filename for item in edited["attachments"]], ["keep_this.txt", new_name])
 
     async def test_local_panel_art_is_uploaded_as_a_message_attachment(self):
         sent = {}

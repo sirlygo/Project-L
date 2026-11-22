@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
 
 import discord
 from discord import app_commands
@@ -102,7 +103,8 @@ async def repair_self_role_panel_images(channel, bot_user_id):
         if not art_path.is_file():
             failures.append((message.id, FileNotFoundError(str(art_path))))
             continue
-        filename = f"self_roles-{group}-{message.id}.gif"
+        digest = sha256(art_path.read_bytes()).hexdigest()[:10]
+        filename = f"self_roles-{group}-{message.id}-{digest}.gif"
         if _panel_image_is_current(message, filename):
             continue
         image_file = None
@@ -113,8 +115,9 @@ async def repair_self_role_panel_images(channel, bot_user_id):
             preserved = [
                 attachment
                 for attachment in message.attachments
-                if str(getattr(attachment, "filename", "")).casefold()
-                != filename.casefold()
+                if not str(getattr(attachment, "filename", "")).casefold().startswith(
+                    f"self_roles-{group}-{message.id}".casefold()
+                )
             ]
             await message.edit(embed=embed, attachments=[*preserved, image_file])
             repaired += 1
@@ -146,7 +149,19 @@ def _managed_panel_art_filename(kind: str) -> str | None:
     art_path = PANEL_ART_IMAGES.get(kind)
     if art_path is None:
         return None
-    return f"project_l_{kind.replace(':', '_')}{art_path.suffix.casefold()}"
+    stem = f"project_l_{kind.replace(':', '_')}"
+    if kind.startswith("self_roles:") and art_path.is_file():
+        stem += f"_{sha256(art_path.read_bytes()).hexdigest()[:10]}"
+    return f"{stem}{art_path.suffix.casefold()}"
+
+
+def _is_managed_art_attachment(attachment, kind: str) -> bool:
+    name = str(getattr(attachment, "filename", "")).casefold()
+    stem = f"project_l_{kind.replace(':', '_')}"
+    suffix = PANEL_ART_IMAGES[kind].suffix.casefold()
+    return name == f"{stem}{suffix}" or (
+        name.startswith(f"{stem}_") and name.endswith(suffix)
+    )
 
 
 def managed_panel_art_is_current(message, kind: str) -> bool:
@@ -191,8 +206,7 @@ async def repair_managed_panel_art(message, kind: str) -> bool:
         preserved = [
             attachment
             for attachment in getattr(message, "attachments", [])
-            if str(getattr(attachment, "filename", "")).casefold()
-            != filename.casefold()
+            if not _is_managed_art_attachment(attachment, kind)
         ]
         await message.edit(embed=embed, attachments=[*preserved, image_file])
         return True
