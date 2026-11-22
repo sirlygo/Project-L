@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from config_loader import BASE_DIR, load_config, load_role_ids
 from logFunction import print_interaction_info
-
+from self_roles import ROLE_GROUPS, managed_role_ids
 
 SELF_ROLES_IMAGE = BASE_DIR / "Data" / "self_roles.gif"
 PANEL_ART_DIR = BASE_DIR / "Data" / "art"
@@ -18,6 +18,26 @@ PANEL_ART_IMAGES = {
     "verification": PANEL_ART_DIR / "verification.png",
     "private_voice": PANEL_ART_DIR / "private_voice.png",
     "tickets": PANEL_ART_DIR / "tickets.png",
+    "self_roles_header": SELF_ROLES_IMAGE,
+    **{
+        f"self_roles:{group}": PANEL_ART_DIR / f"self_roles_{group}.gif"
+        for group in ROLE_GROUPS
+    },
+}
+LEGACY_SELF_ROLE_GROUPS = {
+    "color roles": "colors",
+    "gender roles": "pronouns",
+    "age roles": "age",
+    "platform roles": "platform",
+    "server notifications": "pings",
+    "game roles": "platform",
+}
+SELF_ROLE_COPY = {
+    "colors": ("Color Roles", "Choose your favorite color. Selecting another color replaces your previous one."),
+    "pronouns": ("Pronoun Roles", "Choose the pronouns you use. Selecting another option replaces your previous one."),
+    "platform": ("Gaming Platform Roles", "Choose the platform you play on. Selecting another platform replaces your previous one."),
+    "age": ("Age Roles", "Choose Under 18 or 18 or Older. Selecting one replaces the other."),
+    "pings": ("Event Pings", "Opt in to Movie Night Pings, Game Night Pings, or both. Select again to opt out."),
 }
 SELF_ROLE_PANEL_TITLES = frozenset(
     {
@@ -34,6 +54,7 @@ PANEL_COMPONENT_IDS = {
     "private_voice": frozenset({"voicechannel"}),
     "tickets": frozenset({"ticket_help", "ticket_suggestions", "ticket_report"}),
     "reaction_roles": frozenset({"roles"}),
+    **{f"self_roles:{group}": frozenset({f"selfrole:{group}:0"}) for group in ROLE_GROUPS},
 }
 
 
@@ -44,8 +65,10 @@ def normalized_panel_title(title):
 
 
 def is_self_role_panel_message(message, bot_user_id):
-    """Return whether this is one of Project L's known button role panels."""
+    """Return whether this is an older role panel needing image migration."""
     if getattr(getattr(message, "author", None), "id", None) != bot_user_id:
+        return False
+    if any(custom_id.startswith("selfrole:") for custom_id in _component_custom_ids(message)):
         return False
     embeds = getattr(message, "embeds", [])
     components = getattr(message, "components", [])
@@ -74,12 +97,17 @@ async def repair_self_role_panel_images(channel, bot_user_id):
     async for message in channel.history(limit=100, oldest_first=False):
         if not is_self_role_panel_message(message, bot_user_id):
             continue
-        filename = f"self_roles-{message.id}.gif"
+        group = LEGACY_SELF_ROLE_GROUPS[normalized_panel_title(message.embeds[0].title)]
+        art_path = PANEL_ART_IMAGES[f"self_roles:{group}"]
+        if not art_path.is_file():
+            failures.append((message.id, FileNotFoundError(str(art_path))))
+            continue
+        filename = f"self_roles-{group}-{message.id}.gif"
         if _panel_image_is_current(message, filename):
             continue
         image_file = None
         try:
-            image_file = discord.File(SELF_ROLES_IMAGE, filename=filename)
+            image_file = discord.File(art_path, filename=filename)
             embed = discord.Embed.from_dict(message.embeds[0].to_dict())
             embed.set_image(url=f"attachment://{filename}")
             preserved = [
@@ -118,7 +146,7 @@ def _managed_panel_art_filename(kind: str) -> str | None:
     art_path = PANEL_ART_IMAGES.get(kind)
     if art_path is None:
         return None
-    return f"project_l_{kind}{art_path.suffix.casefold()}"
+    return f"project_l_{kind.replace(':', '_')}{art_path.suffix.casefold()}"
 
 
 def managed_panel_art_is_current(message, kind: str) -> bool:
@@ -177,6 +205,9 @@ def panel_kind_for_message(message, bot_user_id: int) -> str | None:
     """Identify a bot-authored managed panel by its stable component IDs."""
     if getattr(getattr(message, "author", None), "id", None) != bot_user_id:
         return None
+    embeds = getattr(message, "embeds", [])
+    if embeds and getattr(getattr(embeds[0], "footer", None), "text", None) == "Project L • Self Roles Header":
+        return "self_roles_header"
     component_ids = _component_custom_ids(message)
     for kind, required in PANEL_COMPONENT_IDS.items():
         if required.issubset(component_ids):
@@ -240,6 +271,22 @@ class ReactionRoleView(discord.ui.View):
                 custom_id="roles",
             )
         )
+
+
+class BuiltinSelfRoleView(discord.ui.View):
+    def __init__(self, config, guild, group):
+        super().__init__(timeout=None)
+        managed = managed_role_ids(config)
+        ids = managed.get(group, {})
+        for index, choice in enumerate(ROLE_GROUPS[group]):
+            if ids.get(choice) and guild.get_role(int(ids[choice])):
+                self.add_item(
+                    discord.ui.Button(
+                        label=choice,
+                        style=discord.ButtonStyle.success,
+                        custom_id=f"selfrole:{group}:{index}",
+                    )
+                )
 
 
 def reaction_role_options(guild, role_ids: list[int]) -> list[discord.SelectOption]:
@@ -309,7 +356,7 @@ async def send_panel_with_local_art(kind, channel, *, embed, view):
     image_file = None
     if art_path is not None and art_path.is_file():
         try:
-            filename = f"project_l_{kind}{art_path.suffix.casefold()}"
+            filename = _managed_panel_art_filename(kind)
             image_file = discord.File(art_path, filename=filename)
             embed.set_image(url=f"attachment://{filename}")
         except OSError as exc:
@@ -350,6 +397,14 @@ async def send_reaction_role_panel(channel, guild, colour):
 
 
 async def send_managed_panel(kind: str, channel, guild, colour):
+    if kind == "self_roles_header":
+        embed = discord.Embed(
+            title="Self Roles",
+            description="Pick the roles that fit you using the buttons below.",
+            colour=colour,
+        )
+        embed.set_footer(text="Project L • Self Roles Header")
+        return await send_panel_with_local_art(kind, channel, embed=embed, view=None)
     if kind == "verification":
         return await send_panel_with_local_art(
             kind,
@@ -373,6 +428,14 @@ async def send_managed_panel(kind: str, channel, guild, colour):
         )
     if kind == "reaction_roles":
         return await send_reaction_role_panel(channel, guild, colour)
+    if kind.startswith("self_roles:"):
+        group = kind.split(":", 1)[1]
+        view = BuiltinSelfRoleView(load_config(), guild, group)
+        if len(view.children) != len(ROLE_GROUPS[group]):
+            raise ValueError(f"{group} self-service roles are not fully configured.")
+        title, description = SELF_ROLE_COPY[group]
+        embed = discord.Embed(title=title, description=description, colour=colour)
+        return await send_panel_with_local_art(kind, channel, embed=embed, view=view)
     raise ValueError(f"Unknown managed panel kind: {kind}")
 
 
@@ -411,7 +474,11 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
         report.failed.append(f"could not inspect existing panels: {exc}")
         return report
 
-    desired = ["verification", "private_voice", "tickets"]
+    desired = []
+    if managed_role_ids(config):
+        desired.append("self_roles_header")
+        desired.extend(f"self_roles:{group}" for group in ROLE_GROUPS)
+    desired.extend(["verification", "private_voice", "tickets"])
     if reaction_role_options(guild, load_role_ids()):
         desired.append("reaction_roles")
     for kind in desired:

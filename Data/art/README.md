@@ -10,6 +10,11 @@ third-party image URLs.
 | `verification.png` | 1200 x 400, PNG | Verification panel, automatic |
 | `private_voice.png` | 1200 x 400, PNG | Private-voice panel, automatic |
 | `tickets.png` | 1200 x 400, PNG | Ticket panel, automatic |
+| `self_roles_colors.gif` | 900 px wide, GIF | Color role panel |
+| `self_roles_pronouns.gif` | 900 px wide, GIF | Pronoun role panel |
+| `self_roles_platform.gif` | 900 px wide, GIF | Gaming platform role panel |
+| `self_roles_age.gif` | 900 px wide, GIF | Age role panel |
+| `self_roles_pings.gif` | 900 px wide, GIF | Movie/Game Night Pings panel |
 
 The optional `emojis/` directory contains five 128 x 128 transparent PNGs.
 Setup creates only a missing emoji with the corresponding stable name and never
@@ -36,7 +41,9 @@ Two established assets remain one directory above this folder:
 
 - `../welcome.jpg` is 1024 x 500 and is composited with each new member's
   avatar and name.
-- `../self_roles.gif` is 720 x 170 and is uploaded with reaction-role panels.
+- `../self_roles.gif` is 720 x 170 and is uploaded as the opening Self Roles
+  banner and with optional reaction-role panels. The five `self_roles_*.png`
+  files are the original generated artwork used to encode the matching GIFs.
 
 Discord application avatars and server branding cannot be safely changed by
 the local provisioning process. Upload `project_l_logo.png` on the bot's

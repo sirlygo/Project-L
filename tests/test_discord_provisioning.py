@@ -13,6 +13,7 @@ from discord_provisioning import (
     validate_provisioning_access,
 )
 from discord_validation import PERMISSION_BITS
+from self_roles import ROLE_GROUPS, role_name
 
 ENABLED_PRIVILEGED_INTENT_FLAGS = (1 << 13) | (1 << 15) | (1 << 19)
 
@@ -149,6 +150,16 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertTrue(config["welcome"])
         self.assertTrue(config["verified"])
         self.assertTrue(config["streamRole"])
+        self.assertEqual(
+            sum(len(group) for group in config["managedResources"]["selfRoles"].values()),
+            sum(len(choices) for choices in ROLE_GROUPS.values()),
+        )
+        for group, choices in ROLE_GROUPS.items():
+            for choice in choices:
+                role_id = config["managedResources"]["selfRoles"][group][choice]
+                role = next(role for role in self.api.roles if int(role["id"]) == role_id)
+                self.assertEqual(role["name"], role_name(group, choice))
+                self.assertEqual(int(role["permissions"]), 0)
         self.assertTrue(config["managedResources"]["panelsChannel"])
         self.assertEqual(config["welcome_images"], 0)
         self.assertTrue(config["transcripts"])

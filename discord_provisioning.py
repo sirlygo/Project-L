@@ -24,6 +24,7 @@ from discord_validation import (
 from discord_validation import (
     required_bot_permissions as _required_bot_permissions,
 )
+from self_roles import ROLE_GROUPS, role_name
 
 RequestJson = Callable[..., Any]
 
@@ -813,6 +814,29 @@ def provision_guild_resources(
         mentionable=False,
     )
     updated_config["streamRole"] = _permission_value(streamer_role.get("id"))
+
+    self_roles = managed.get("selfRoles")
+    if not isinstance(self_roles, dict):
+        self_roles = {}
+        managed["selfRoles"] = self_roles
+    for group, choices in ROLE_GROUPS.items():
+        group_roles = self_roles.get(group)
+        if not isinstance(group_roles, dict):
+            group_roles = {}
+            self_roles[group] = group_roles
+        for choice in choices:
+            role = _ensure_role(
+                snapshot=snapshot,
+                request_json=request_json,
+                token=token,
+                timeout=timeout,
+                report=report,
+                label=f"{group} {choice}",
+                name=role_name(group, choice),
+                preferred_id=_permission_value(group_roles.get(choice)),
+                mentionable=False,
+            )
+            group_roles[choice] = _permission_value(role.get("id"))
 
     private_overwrites = _private_overwrites(snapshot)
     public_overwrites = _public_readonly_overwrites(snapshot)

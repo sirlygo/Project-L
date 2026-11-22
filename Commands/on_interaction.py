@@ -1,11 +1,13 @@
+import asyncio
+import re
+import sqlite3
+from pathlib import Path
+
 import discord
 from discord.ext import commands
-from pathlib import Path
-import asyncio
-import sqlite3
-import re
-from config_loader import load_config
 
+from config_loader import load_config, load_role_ids
+from self_roles import ROLE_GROUPS, managed_role_ids
 
 TICKET_TOPIC_PATTERN = re.compile(r"^ticket-owner:(\d+)$")
 
@@ -283,9 +285,16 @@ class OnInteractionEvent(commands.Cog):
 
 
 
-        elif interaction.data['custom_id'] == "roles":
+        elif interaction.data['custom_id'] == "roles" or str(interaction.data['custom_id']).startswith("selfrole:"):
             try:
-                roleid = int(interaction.data['values'][0])
+                custom_id = str(interaction.data['custom_id'])
+                if custom_id == "roles":
+                    roleid = int(interaction.data['values'][0])
+                    group = "manual"
+                else:
+                    _, group, choice_index = custom_id.split(":")
+                    choice = ROLE_GROUPS[group][int(choice_index)]
+                    roleid = int(managed_role_ids(config)[group][choice])
                 role = interaction.guild.get_role(roleid)
             except Exception as exc:
                 print(exc)
@@ -295,10 +304,31 @@ class OnInteractionEvent(commands.Cog):
                 await interaction.response.send_message("Role does not exist.", ephemeral=True)
                 return
 
+            if group == "manual":
+                permitted = roleid in load_role_ids()
+            else:
+                group_ids = managed_role_ids(config).get(group, {})
+                permitted = group in ROLE_GROUPS and roleid in group_ids.values()
+            bot_member = interaction.guild.me
+            if (
+                not permitted
+                or role.id == interaction.guild.id
+                or role.managed
+                or bot_member is None
+                or role >= bot_member.top_role
+            ):
+                await interaction.response.send_message("This role cannot be self-assigned.", ephemeral=True)
+                return
+
 
             member = interaction.guild.get_member(interaction.user.id)
             if role not in member.roles:
                 try:
+                    if group in ("colors", "pronouns", "platform", "age"):
+                        other_ids = set(managed_role_ids(config).get(group, {}).values()) - {roleid}
+                        others = [member_role for member_role in member.roles if member_role.id in other_ids]
+                        if others:
+                            await member.remove_roles(*others)
                     await member.add_roles(role)
                     await interaction.response.send_message(f"You received {role.mention}", ephemeral=True)
                 except Exception as exc:

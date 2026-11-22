@@ -210,8 +210,10 @@ restart count and delay can be changed with `-MaxRestarts` and
 
 ## Self-role panels
 
-On first startup, Project L posts missing verification, private-voice, ticket,
-and configured reaction-role panels in the automatic `project-l-panels`
+On first startup, Project L creates the built-in self-role choices and posts a
+**Self Roles** banner first, followed by separate Color, Pronoun, Platform, Age,
+and Event Pings button panels. Each group has its own animated GIF. Verification,
+private-voice, ticket, and configured reaction-role panels follow in the automatic `project-l-panels`
 channel. Existing panels are detected by their stable component IDs, so
 restarts do not post duplicates. Existing text-only managed panels are upgraded
 in place with their local art while preserving their buttons. Verification,
@@ -223,7 +225,7 @@ to `/say` are also reuploaded as durable message attachments.
 
 If older Color, Gender, Age, Platform, Server Notification, or Game role panels
 show **Image failed to load**, run `/repairselfroles` in that channel as an
-administrator. The command edits only recognized bot-authored panels, preserves
+administrator. It attaches the matching group GIF. The command edits only recognized bot-authored panels, preserves
 their existing buttons and unrelated attachments, and is safe to run again.
 
 ## Included art pack
@@ -238,7 +240,9 @@ Project L includes local artwork for every setup-managed visual:
   missing `projectl_*` names and never replaces or deletes server emojis.
 - `Data/welcome.jpg`: background used to generate personalized welcome cards.
 - `Data/self_roles.gif`: animated reaction-role panel banner and legacy-panel
-  repair source.
+  opening self-role banner.
+- `Data/art/self_roles_*.gif`: distinct animated Color, Pronoun, Platform, Age,
+  and Event Pings artwork for the matching button panels and legacy repairs.
 
 The setup-managed panel art is automatic. Discord deliberately keeps bot
 application branding and server branding behind account/server-owner controls,
