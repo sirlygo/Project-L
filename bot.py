@@ -10,6 +10,7 @@ import sqlite3
 import random
 import requests
 from collections import deque
+from contextlib import closing
 from easy_pil import Editor, load_image_async, Font
 from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
@@ -17,6 +18,8 @@ from Commands.giveaways import giveaway_path
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
 from guild_guard import ConfiguredGuildTree
+from guild_config import active_guild_configs
+from guild_config import load_active_guild_config
 from dashboard_store import (
     claim_due_announcements, finish_announcement, mark_interrupted_announcements_failed,
     mark_response_alerted,
@@ -181,12 +184,10 @@ channelName = {
 
 @tasks.loop(minutes=6)  # Set the interval to 5 minutes
 async def update_stats():
-    # Get server information
-    guild = client.get_guild(guildId)
-
-    # print('inside loop')
-
-    if guild:
+    for guild, guild_config in active_guild_configs(client.guilds):
+        stat_channels = guild_config.get("serverStatChannelIds", {})
+        if not any(stat_channels.values()):
+            continue
         totalMembers = guild.member_count
         totalBoosts = guild.premium_subscription_count
         totalBots = sum(1 for member in guild.members if member.bot)
@@ -202,7 +203,7 @@ async def update_stats():
         # print(offlineMembers)
         # print(serverStats.items())
 
-        for stat_key, channel_id in serverStats.items():
+        for stat_key, channel_id in stat_channels.items():
             if not channel_id:
                 continue
             try:
@@ -223,8 +224,6 @@ async def update_stats():
                     print(f"Channel not found for {stat_key}.")
             except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
                 print(f"Could not update {stat_key} channel {channel_id}: {exc}")
-    else:
-        print("Guild not found.")
 
 
 def read_last_date():
@@ -417,7 +416,7 @@ async def on_ready():
                 print(f"[!] Could not position general chat: {exc}")
                 client.layout_reconciled = False
 
-    if guildId and any(serverStats.values()) and not update_stats.is_running():
+    if not update_stats.is_running():
         update_stats.start()
 
     if kickMemberFunction and verifiedRoleId and not check_members_task.is_running():
@@ -436,9 +435,10 @@ async def on_ready():
     if not ticket_maintenance.is_running():
         ticket_maintenance.start()
     if not announcement_scheduler.is_running():
-        interrupted = await asyncio.to_thread(mark_interrupted_announcements_failed, guildId)
-        if interrupted:
-            print(f"[!] {interrupted} interrupted announcement(s) marked failed for manual review.")
+        for guild, _guild_config in active_guild_configs(client.guilds):
+            interrupted = await asyncio.to_thread(mark_interrupted_announcements_failed, guild.id)
+            if interrupted:
+                print(f"[!] {interrupted} interrupted announcement(s) in {guild.id} marked failed.")
         announcement_scheduler.start()
 
     if not client.dashboard_attempted:
@@ -451,51 +451,47 @@ async def on_ready():
 
 @tasks.loop(seconds=30)
 async def announcement_scheduler():
-    guild = client.get_guild(guildId)
-    if guild is None:
-        return
-    for announcement in await asyncio.to_thread(claim_due_announcements, guild.id):
-        channel = guild.get_channel(announcement["channel_id"])
-        sent = False
-        if isinstance(channel, discord.TextChannel):
-            try:
-                await channel.send(
-                    announcement["content"], allowed_mentions=discord.AllowedMentions.none(),
-                )
-                sent = True
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-        await asyncio.to_thread(finish_announcement, guild.id, announcement["id"], sent)
+    for guild, _guild_config in active_guild_configs(client.guilds):
+        for announcement in await asyncio.to_thread(claim_due_announcements, guild.id):
+            channel = guild.get_channel(announcement["channel_id"])
+            sent = False
+            if isinstance(channel, discord.TextChannel):
+                try:
+                    await channel.send(
+                        announcement["content"], allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    sent = True
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+            await asyncio.to_thread(finish_announcement, guild.id, announcement["id"], sent)
 
 
 @tasks.loop(minutes=10)
 async def ticket_maintenance():
-    settings = (load_config().get("ticketWorkspace") or {})
-    guild = client.get_guild(guildId)
-    if guild is None:
-        return
-    retention_days = int(settings.get("transcriptRetentionDays", 0) or 0)
-    if retention_days > 0:
-        removed = await asyncio.to_thread(
-            purge_transcripts, guild.id, int(time.time()) - retention_days * 86400,
-        )
-        if removed:
-            print(f"[OK] Purged {removed} expired ticket transcript(s).")
-    target = int(settings.get("responseTargetMinutes", 0) or 0)
-    if target <= 0:
-        return
-    alert_channel = guild.get_channel(int(load_config().get("logs", 0) or 0))
-    if not isinstance(alert_channel, discord.TextChannel):
-        return
-    for ticket in await asyncio.to_thread(overdue_tickets, guild.id, target):
-        try:
-            await alert_channel.send(
-                f"⚠️ Ticket <#{ticket['channel_id']}> has no staff response after "
-                f"{target} minutes.", allowed_mentions=discord.AllowedMentions.none(),
+    for guild, guild_config in active_guild_configs(client.guilds):
+        settings = guild_config.get("ticketWorkspace") or {}
+        retention_days = int(settings.get("transcriptRetentionDays", 0) or 0)
+        if retention_days > 0:
+            removed = await asyncio.to_thread(
+                purge_transcripts, guild.id, int(time.time()) - retention_days * 86400,
             )
-        except (discord.Forbidden, discord.HTTPException):
-            break
-        await asyncio.to_thread(mark_response_alerted, guild.id, ticket["channel_id"])
+            if removed:
+                print(f"[OK] Purged {removed} expired ticket transcript(s) in {guild.id}.")
+        target = int(settings.get("responseTargetMinutes", 0) or 0)
+        if target <= 0:
+            continue
+        alert_channel = guild.get_channel(int(guild_config.get("logs", 0) or 0))
+        if not isinstance(alert_channel, discord.TextChannel):
+            continue
+        for ticket in await asyncio.to_thread(overdue_tickets, guild.id, target):
+            try:
+                await alert_channel.send(
+                    f"⚠️ Ticket <#{ticket['channel_id']}> has no staff response after "
+                    f"{target} minutes.", allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                break
+            await asyncio.to_thread(mark_response_alerted, guild.id, ticket["channel_id"])
 
 
 @tasks.loop(seconds=30)
@@ -578,7 +574,7 @@ async def _legacy_checker():
 
 def update_giveaway_record(giveaway_id, guild_id, *, delete=False):
     try:
-        with sqlite3.connect(giveaway_path(guild_id)) as conn:
+        with closing(sqlite3.connect(giveaway_path(guild_id))) as conn, conn:
             if delete:
                 conn.execute("DELETE FROM giveaways WHERE id = ?", (giveaway_id,))
             else:
@@ -593,8 +589,14 @@ def update_giveaway_record(giveaway_id, guild_id, *, delete=False):
 
 @tasks.loop(seconds=30)
 async def checker():
+    for guild, _guild_config in active_guild_configs(client.guilds):
+        await check_guild_giveaways(guild)
+
+
+async def check_guild_giveaways(guild):
+    guild_id = guild.id
     try:
-        with sqlite3.connect(giveaway_path(guildId)) as conn:
+        with closing(sqlite3.connect(giveaway_path(guild_id))) as conn:
             records = conn.execute(
                 "SELECT id, channel, message FROM giveaways "
                 "WHERE ends <= ? AND ended = 0",
@@ -606,19 +608,20 @@ async def checker():
 
     for giveaway_id, channel_id, message_id in records:
         try:
-            channel = client.get_channel(channel_id)
+            channel = guild.get_channel(channel_id)
             if channel is None:
-                update_giveaway_record(giveaway_id, guildId, delete=True)
+                # A missing or foreign channel must never be read or replied to.
+                update_giveaway_record(giveaway_id, guild_id, delete=True)
                 continue
 
             message = await channel.fetch_message(message_id)
             if not message.embeds or not message.embeds[0].description:
-                update_giveaway_record(giveaway_id, guildId, delete=True)
+                update_giveaway_record(giveaway_id, guild_id, delete=True)
                 continue
 
             embed = message.embeds[0]
             if "Giveaway ended" in embed.description:
-                update_giveaway_record(giveaway_id, guildId)
+                update_giveaway_record(giveaway_id, guild_id)
                 continue
             winners = parse_winner_count(embed.description)
 
@@ -636,7 +639,7 @@ async def checker():
 
             if len(participants) < winners:
                 await message.reply("Not enough participants for this giveaway.")
-                update_giveaway_record(giveaway_id, guildId)
+                update_giveaway_record(giveaway_id, guild_id)
                 continue
 
             winner_list = random.sample(list(participants.values()), k=winners)
@@ -653,9 +656,9 @@ async def checker():
                 )
             result_embed.set_footer(text="Giveaway ended")
             await message.reply(embed=result_embed)
-            update_giveaway_record(giveaway_id, guildId)
+            update_giveaway_record(giveaway_id, guild_id)
         except discord.NotFound:
-            update_giveaway_record(giveaway_id, guildId, delete=True)
+            update_giveaway_record(giveaway_id, guild_id, delete=True)
         except (
             discord.Forbidden,
             discord.HTTPException,
@@ -827,11 +830,17 @@ async def on_guild_join(guild: discord.Guild):
 
 @client.event
 async def on_member_join(member: discord.Member):
-    if member.guild.id != guildId:
+    try:
+        guild_config = load_active_guild_config(member.guild.id)
+    except ConfigError:
         return
-    welcome = client.get_channel(welcomeid)
+    welcome_channel_id = int(
+        guild_config.get("managedResources", {}).get("welcomeMessagesChannel")
+        or guild_config["welcome"]
+    )
+    welcome = member.guild.get_channel(welcome_channel_id)
     if welcome is None:
-        print(f"[!] Welcome channel {welcomeid} is unavailable.")
+        print(f"[!] Welcome channel {welcome_channel_id} is unavailable in {member.guild.id}.")
         return
     embed = discord.Embed(
         title=f"👋 Welcome to {member.guild.name}!",
@@ -971,20 +980,6 @@ def initialize_databases():
             "CREATE TABLE IF NOT EXISTS infos_salos ("
             "id_salon INTEGER PRIMARY KEY, contenu TEXT, message_limit INTEGER)"
         )
-
-
-async def configured_guild_only(interaction: discord.Interaction):
-    if interaction.guild_id == guildId:
-        return True
-    if not interaction.response.is_done():
-        await interaction.response.send_message(
-            "This bot is not configured for this server.",
-            ephemeral=True,
-        )
-    return False
-
-
-client.tree.interaction_check = configured_guild_only
 
 
 async def handle_app_command_error(

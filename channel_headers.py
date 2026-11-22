@@ -40,8 +40,8 @@ def header_embed(kind, config):
     return embed, path, filename
 
 
-async def ensure_channel_headers(bot):
-    config = load_config()
+async def ensure_channel_headers(bot, config=None):
+    config = config if config is not None else load_config()
     guild = bot.get_guild(config["guildId"])
     if guild is None:
         return []

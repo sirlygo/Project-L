@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config_loader import BASE_DIR, load_config, load_role_ids
+from guild_config import guild_config_path, load_active_guild_config
 from logFunction import print_interaction_info
 from self_roles import ROLE_GROUPS, managed_role_ids
 from branding import resolve_art_path
@@ -30,13 +31,29 @@ PANEL_ART_IMAGES = {
 }
 
 
-def panel_art_path(kind: str):
+def panel_art_path(kind: str, guild_id=None):
     default = PANEL_ART_IMAGES.get(kind)
     if default is None:
         return None
     key = kind.replace(":", "_")
-    configured = resolve_art_path(key, load_config())
+    config = load_active_guild_config(guild_id) if guild_id is not None else load_config()
+    configured = resolve_art_path(key, config)
     return configured if configured != resolve_art_path(key) else default
+
+
+def _channel_guild_id(channel):
+    """Use the owning server when available (legacy test doubles may omit it)."""
+    return getattr(getattr(channel, "guild", None), "id", None)
+
+
+def reaction_role_ids_for_guild(guild_id):
+    """Never reuse the primary server's optional reaction-role IDs elsewhere."""
+    primary = load_config()
+    if guild_id is None or guild_id == primary["guildId"]:
+        return load_role_ids()
+    load_active_guild_config(guild_id, primary_config=primary)
+    path = guild_config_path(guild_id).with_name("roles.json")
+    return load_role_ids(path) if path.is_file() else []
 LEGACY_SELF_ROLE_GROUPS = {
     "color roles": "colors",
     "gender roles": "pronouns",
@@ -124,7 +141,7 @@ async def repair_self_role_panel_images(channel, bot_user_id):
         if not is_self_role_panel_message(message, bot_user_id):
             continue
         group = LEGACY_SELF_ROLE_GROUPS[normalized_panel_title(message.embeds[0].title)]
-        art_path = panel_art_path(f"self_roles:{group}")
+        art_path = panel_art_path(f"self_roles:{group}", _channel_guild_id(channel))
         if not art_path.is_file():
             failures.append((message.id, FileNotFoundError(str(art_path))))
             continue
@@ -170,8 +187,8 @@ def _component_custom_ids(message) -> set[str]:
     return result
 
 
-def _managed_panel_art_filename(kind: str) -> str | None:
-    art_path = panel_art_path(kind)
+def _managed_panel_art_filename(kind: str, guild_id=None) -> str | None:
+    art_path = panel_art_path(kind, guild_id)
     if art_path is None:
         return None
     stem = f"project_l_{kind.replace(':', '_')}"
@@ -183,16 +200,14 @@ def _managed_panel_art_filename(kind: str) -> str | None:
 def _is_managed_art_attachment(attachment, kind: str) -> bool:
     name = str(getattr(attachment, "filename", "")).casefold()
     stem = f"project_l_{kind.replace(':', '_')}"
-    suffix = panel_art_path(kind).suffix.casefold()
-    return name == f"{stem}{suffix}" or (
-        name.startswith(f"{stem}_") and name.endswith(suffix)
-    )
+    return name.startswith(f"{stem}_") or name.startswith(f"{stem}.")
 
 
 def managed_panel_art_is_current(message, kind: str) -> bool:
     """Return whether a managed panel uses its durable bundled attachment."""
-    filename = _managed_panel_art_filename(kind)
-    art_path = panel_art_path(kind)
+    guild_id = getattr(getattr(getattr(message, "channel", None), "guild", None), "id", None)
+    filename = _managed_panel_art_filename(kind, guild_id)
+    art_path = panel_art_path(kind, guild_id)
     if filename is None or art_path is None or not art_path.is_file():
         return True
     embeds = getattr(message, "embeds", [])
@@ -204,8 +219,9 @@ def managed_panel_art_is_current(message, kind: str) -> bool:
 
 async def repair_managed_panel_art(message, kind: str) -> bool:
     """Attach bundled art to an existing panel without replacing its controls."""
-    art_path = panel_art_path(kind)
-    filename = _managed_panel_art_filename(kind)
+    guild_id = getattr(getattr(getattr(message, "channel", None), "guild", None), "id", None)
+    art_path = panel_art_path(kind, guild_id)
+    filename = _managed_panel_art_filename(kind, guild_id)
     embeds = getattr(message, "embeds", [])
     if (
         art_path is None
@@ -406,11 +422,12 @@ def ticket_embed(colour) -> discord.Embed:
 
 async def send_panel_with_local_art(kind, channel, *, embed, view):
     """Send a panel with its bundled art as a durable Discord attachment."""
-    art_path = panel_art_path(kind)
+    guild_id = _channel_guild_id(channel)
+    art_path = panel_art_path(kind, guild_id)
     image_file = None
     if art_path is not None and art_path.is_file():
         try:
-            filename = _managed_panel_art_filename(kind)
+            filename = _managed_panel_art_filename(kind, guild_id)
             image_file = discord.File(art_path, filename=filename)
             embed.set_image(url=f"attachment://{filename}")
         except OSError as exc:
@@ -427,7 +444,7 @@ async def send_panel_with_local_art(kind, channel, *, embed, view):
 
 
 async def send_reaction_role_panel(channel, guild, colour):
-    options = reaction_role_options(guild, load_role_ids())
+    options = reaction_role_options(guild, reaction_role_ids_for_guild(guild.id))
     if not options:
         raise ValueError("No assignable reaction roles are configured.")
     embed = discord.Embed(
@@ -438,7 +455,7 @@ async def send_reaction_role_panel(channel, guild, colour):
     embed.set_footer(text="Project L • Reaction Roles")
     image_file = None
     try:
-        art_path = panel_art_path("self_roles_header")
+        art_path = panel_art_path("self_roles_header", guild.id)
         if art_path.is_file():
             filename = f"project_l_reaction_roles{art_path.suffix.casefold()}"
             image_file = discord.File(art_path, filename=filename)
@@ -490,7 +507,9 @@ async def send_managed_panel(kind: str, channel, guild, colour):
         return await send_reaction_role_panel(channel, guild, colour)
     if kind.startswith("self_roles:"):
         group = kind.split(":", 1)[1]
-        view = BuiltinSelfRoleView(load_config(), guild, group)
+        guild_id = getattr(guild, "id", None)
+        panel_config = load_active_guild_config(guild_id) if guild_id is not None else load_config()
+        view = BuiltinSelfRoleView(panel_config, guild, group)
         if len(view.children) != len(ROLE_GROUPS[group]):
             raise ValueError(f"{group} self-service roles are not fully configured.")
         title, description = SELF_ROLE_COPY[group]
@@ -508,10 +527,10 @@ class PanelInstallReport:
     failed: list[str] = field(default_factory=list)
 
 
-async def ensure_automatic_panels(client) -> PanelInstallReport:
+async def ensure_automatic_panels(client, config=None) -> PanelInstallReport:
     """Keep Verify in welcome and self-role controls in the panels channel."""
     report = PanelInstallReport()
-    config = load_config()
+    config = config if config is not None else load_config()
     guild = client.get_guild(config["guildId"])
     panels_id = int(config.get("managedResources", {}).get("panelsChannel", 0) or 0)
     welcome_id = int(config.get("welcome", 0) or 0)
@@ -582,7 +601,7 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
     if managed_role_ids(config):
         desired.append("self_roles_header")
         desired.extend(f"self_roles:{group}" for group in ROLE_GROUPS)
-    if reaction_role_options(guild, load_role_ids()):
+    if reaction_role_options(guild, reaction_role_ids_for_guild(config["guildId"])):
         desired.append("reaction_roles")
     for kind in desired:
         existing_message = panel_messages.get(kind)
@@ -709,7 +728,7 @@ class PanelsCommand(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def verifypanel(self, interaction: discord.Interaction):
         print_interaction_info(interaction)
-        config = load_config()
+        config = load_active_guild_config(interaction.guild.id)
         if interaction.guild.get_role(config["verified"]) is None:
             await interaction.response.send_message(
                 "The verified role is unavailable. Run setup again first.",
@@ -726,7 +745,7 @@ class PanelsCommand(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def voicepanel(self, interaction: discord.Interaction):
         print_interaction_info(interaction)
-        config = load_config()
+        config = load_active_guild_config(interaction.guild.id)
         role = interaction.guild.get_role(config["streamRole"])
         category = interaction.guild.get_channel(config["voicecategory"])
         if role is None or not isinstance(category, discord.CategoryChannel):
@@ -745,7 +764,7 @@ class PanelsCommand(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def ticketpanel(self, interaction: discord.Interaction):
         print_interaction_info(interaction)
-        config = load_config()
+        config = load_active_guild_config(interaction.guild.id)
         invalid = [
             key.removeprefix("category_")
             for key, channel_id in config["tickets"].items()

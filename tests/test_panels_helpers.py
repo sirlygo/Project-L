@@ -15,6 +15,7 @@ from Commands.panels import (
     normalized_panel_title,
     panel_kind_for_message,
     reaction_role_options,
+    reaction_role_ids_for_guild,
     repair_managed_panel_art,
     repair_self_role_panel_images,
     send_panel_with_local_art,
@@ -25,6 +26,24 @@ from self_roles import ROLE_GROUPS
 
 
 class PanelHelperTests(unittest.TestCase):
+    def test_reaction_roles_are_scoped_to_the_server(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            secondary_config = root / "2" / "config.json"
+            secondary_config.parent.mkdir()
+            secondary_roles = secondary_config.with_name("roles.json")
+            secondary_roles.write_text("[22]", encoding="utf-8")
+            with patch("Commands.panels.load_config", return_value={"guildId": 1}), \
+                 patch("Commands.panels.load_active_guild_config", return_value={"guildId": 2}), \
+                 patch("Commands.panels.guild_config_path", return_value=secondary_config), \
+                 patch("Commands.panels.load_role_ids", return_value=[11]) as load_roles:
+                self.assertEqual(reaction_role_ids_for_guild(1), [11])
+                load_roles.assert_called_with()
+                self.assertEqual(reaction_role_ids_for_guild(2), [11])
+                load_roles.assert_called_with(secondary_roles)
+                secondary_roles.unlink()
+                self.assertEqual(reaction_role_ids_for_guild(2), [])
+
     def test_decorated_self_role_titles_are_normalized(self):
         self.assertEqual(normalized_panel_title(" ** Game Roles** "), "game roles")
 
