@@ -6,12 +6,29 @@ import sqlite3
 import random
 import numpy
 import traceback
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from logFunction import print_interaction_info
+from config_loader import load_config
+from guild_config import guild_database_path
 
 
 USERS_DB_PATH = Path(__file__).resolve().parents[1] / "Data" / "users.db"
+
+
+def economy_path(guild_id):
+    primary_id = load_config()["guildId"]
+    path = guild_database_path(guild_id, "users.db", primary_guild_id=primary_id)
+    if guild_id != primary_id:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS users ("
+                "userid INTEGER PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0, "
+                "invited INTEGER NOT NULL DEFAULT 0, left INTEGER NOT NULL DEFAULT 0, "
+                "voice INTEGER NOT NULL DEFAULT 0)"
+            )
+    return path
 
 
 @contextmanager
@@ -154,9 +171,9 @@ class EconomyCommand(commands.Cog):
     def __init__(self, client):
         self.client = client
 
-    def connect(self):
+    def connect(self, guild_id):
         try:
-            conn = sqlite3.connect(f"Data/users.db")
+            conn = sqlite3.connect(economy_path(guild_id))
             curs = conn.cursor()
             return conn, curs
         except Exception as exc:
@@ -199,7 +216,8 @@ class EconomyCommand(commands.Cog):
         roll = random.randrange(1, 100)
         won = roll >= 50
         try:
-            settled = settle_wager(userid, bet, bet if won else -bet)
+            settled = settle_wager(userid, bet, bet if won else -bet,
+                                   path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -245,7 +263,7 @@ class EconomyCommand(commands.Cog):
 
         userid = interaction.user.id
         try:
-            ensure_economy_users((userid, member.id))
+            ensure_economy_users((userid, member.id), path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -264,7 +282,7 @@ class EconomyCommand(commands.Cog):
             else:
                 fine = random.choice([10, 20, 30])
                 try:
-                    debit_balance_to_zero(userid, fine)
+                    debit_balance_to_zero(userid, fine, path=economy_path(interaction.guild_id))
                 except sqlite3.Error as exc:
                     print(exc)
                     await interaction.response.send_message(
@@ -279,7 +297,8 @@ class EconomyCommand(commands.Cog):
                 return
 
         try:
-            num = rob_balance_transfer(userid, member.id, random.randrange(10, 40))
+            num = rob_balance_transfer(userid, member.id, random.randrange(10, 40),
+                                       path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -321,7 +340,7 @@ class EconomyCommand(commands.Cog):
         userid = interaction.user.id
         amount = random.randrange(10, 100)
         try:
-            credit_balance(userid, amount)
+            credit_balance(userid, amount, path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -359,7 +378,7 @@ class EconomyCommand(commands.Cog):
         userid = interaction.user.id
         amount = random.randrange(100, 250)
         try:
-            credit_balance(userid, amount)
+            credit_balance(userid, amount, path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -413,8 +432,8 @@ class EconomyCommand(commands.Cog):
             return
 
         try:
-            ensure_economy_users((userid, userid1))
-            with sqlite3.connect(USERS_DB_PATH) as conn:
+            ensure_economy_users((userid, userid1), path=economy_path(interaction.guild_id))
+            with sqlite3.connect(economy_path(interaction.guild_id)) as conn:
                 balances = dict(
                     conn.execute(
                         "SELECT userid, COALESCE(balance, 0) FROM users "
@@ -465,7 +484,8 @@ class EconomyCommand(commands.Cog):
                         winner = random.choice(partlist)
                         partlist.remove(winner)
                         loser = partlist[0]
-                        if not transfer_balance(loser.id, winner.id, amount):
+                        if not transfer_balance(loser.id, winner.id, amount,
+                                                path=economy_path(interaction.guild_id)):
                             await inter.response.send_message(
                                 f"{loser.mention} no longer has enough money for this bet.",
                                 ephemeral=True,
@@ -542,7 +562,8 @@ class EconomyCommand(commands.Cog):
         payout = cash * bet
         balance_delta = (payout - bet) if won else -bet
         try:
-            settled = settle_wager(userid, bet, balance_delta)
+            settled = settle_wager(userid, bet, balance_delta,
+                                   path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -591,7 +612,7 @@ class EconomyCommand(commands.Cog):
             userpfp = interaction.user.default_avatar
         else:
             userpfp = interaction.user.avatar
-        result = self.connect()
+        result = self.connect(interaction.guild_id)
         if result is None:
             await interaction.response.send_message(
                 "Something went wrong, contact support. (Code 3)", ephemeral=True
@@ -636,7 +657,8 @@ class EconomyCommand(commands.Cog):
         print_interaction_info(interaction)
         userid = interaction.user.id
         try:
-            transferred = transfer_balance(userid, member.id, amount)
+            transferred = transfer_balance(userid, member.id, amount,
+                                           path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -681,8 +703,8 @@ class EconomyCommand(commands.Cog):
                 userpfp = interaction.user.avatar
 
         try:
-            ensure_economy_users((userid,))
-            with sqlite3.connect(USERS_DB_PATH) as conn:
+            ensure_economy_users((userid,), path=economy_path(interaction.guild_id))
+            with sqlite3.connect(economy_path(interaction.guild_id)) as conn:
                 balance = conn.execute(
                     "SELECT COALESCE(balance, 0) FROM users WHERE userid = ?",
                     (userid,),
@@ -714,7 +736,7 @@ class EconomyCommand(commands.Cog):
     ):
         print_interaction_info(interaction)
         try:
-            credit_balance(member.id, amount)
+            credit_balance(member.id, amount, path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
@@ -743,7 +765,8 @@ class EconomyCommand(commands.Cog):
     ):
         print_interaction_info(interaction)
         try:
-            _, created = debit_balance_to_zero(member.id, amount)
+            _, created = debit_balance_to_zero(member.id, amount,
+                                               path=economy_path(interaction.guild_id))
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(

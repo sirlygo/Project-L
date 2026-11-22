@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from Commands.economy import (
     credit_balance,
@@ -11,10 +12,27 @@ from Commands.economy import (
     rob_balance_transfer,
     settle_wager,
     transfer_balance,
+    economy_path,
 )
 
 
 class EconomyIntegrityTests(unittest.TestCase):
+    def test_separate_guild_economies_do_not_share_balances(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("Commands.economy.load_config", return_value={"guildId": 1}), patch(
+                "Commands.economy.guild_database_path",
+                side_effect=lambda guild_id, _database, primary_guild_id: root / str(guild_id) / "users.db",
+            ):
+                second = economy_path(2)
+                third = economy_path(3)
+            credit_balance(7, 100, path=second)
+            credit_balance(7, 25, path=third)
+            with closing(sqlite3.connect(second)) as db:
+                self.assertEqual(db.execute("SELECT balance FROM users WHERE userid=7").fetchone()[0], 100)
+            with closing(sqlite3.connect(third)) as db:
+                self.assertEqual(db.execute("SELECT balance FROM users WHERE userid=7").fetchone()[0], 25)
+
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.database = Path(self.temporary_directory.name) / "users.db"
