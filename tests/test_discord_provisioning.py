@@ -1,11 +1,15 @@
 import json
 import unittest
 from copy import deepcopy
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from config_loader import AUTOMATIC_SETUP_VERSION
 from discord_provisioning import (
     DiscordProvisioningError,
+    _request_json,
     build_bot_invite_url,
     discover_bot_user_id,
     provision_guild_resources,
@@ -208,6 +212,30 @@ class DiscordProvisioningTests(unittest.TestCase):
             for overwrite in channel.get("permission_overwrites", []):
                 requested = int(overwrite["allow"]) | int(overwrite["deny"])
                 self.assertEqual(requested & ~bot_permissions, 0)
+
+    def test_missing_access_error_names_the_failed_resource_operation(self):
+        error = HTTPError(
+            "https://discord.com/api/v10/guilds/100/channels",
+            403,
+            "Forbidden",
+            None,
+            BytesIO(b'{"message":"Missing Access","code":50001}'),
+        )
+        with (
+            patch("discord_provisioning.urlopen", side_effect=error),
+            self.assertRaises(DiscordProvisioningError) as raised,
+        ):
+            _request_json(
+                "POST",
+                "guilds/100/channels",
+                "private-token",
+                15,
+                {"name": "project-l-panels", "type": 0},
+            )
+        message = str(raised.exception)
+        self.assertIn("POST guilds/100/channels (project-l-panels)", message)
+        self.assertIn("50001", message)
+        self.assertNotIn("private-token", message)
 
     def test_second_run_is_idempotent(self):
         config, first_report = provision_guild_resources(

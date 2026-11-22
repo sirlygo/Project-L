@@ -135,6 +135,10 @@ def _request_json(
     payload: Mapping[str, Any] | None = None,
 ) -> Any:
     """Call Discord's REST API, including bounded rate-limit retries."""
+    resource_name = str(payload.get("name", "")).strip() if payload else ""
+    operation = f"{method} {path}"
+    if resource_name:
+        operation += f" ({resource_name})"
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = Request(
         f"{DISCORD_API}/{path.lstrip('/')}",
@@ -164,11 +168,7 @@ def _request_json(
                 continue
             messages = {
                 401: "Discord rejected the bot token.",
-                403: (
-                    "Discord denied automatic server setup. Invite the bot with "
-                    "the setup wizard's exact Invite Bot button, move its bot role "
-                    "above self-service roles, and try again."
-                ),
+                403: "Discord denied this setup operation. Check the bot's access and permissions for this resource.",
                 404: "Discord could not find the configured server or resource.",
                 429: "Discord kept rate-limiting setup. Wait a moment and try again.",
             }
@@ -176,6 +176,21 @@ def _request_json(
             message = messages.get(
                 exc.code, f"Discord returned HTTP {exc.code} during automatic setup."
             )
+            if exc.code == 403:
+                discord_code = details.get("code")
+                message += f" Operation: {operation}."
+                if discord_code == 50001:
+                    message += (
+                        " Missing Access can mean the bot cannot see an existing "
+                        "channel/category, or cannot access this server resource."
+                    )
+                elif discord_code == 50013:
+                    message += (
+                        " Missing Permissions: check Manage Roles, Manage Channels, "
+                        "and the bot's role position."
+                    )
+                if discord_code is not None:
+                    message += f" Discord error code: {discord_code}."
             if api_message and api_message.casefold() not in message.casefold():
                 message = f"{message} Discord says: {api_message}"
             raise DiscordProvisioningError(message) from exc
