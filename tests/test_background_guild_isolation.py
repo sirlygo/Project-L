@@ -3,15 +3,32 @@
 import sqlite3
 import tempfile
 import unittest
+from collections import deque
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from bot import check_guild_giveaways, reconcile_managed_guild
+from bot import (
+    check_guild_giveaways, member_cleanup_date_path, read_last_date,
+    reconcile_managed_guild, twitchloop, write_last_date,
+)
 
 
 class GiveawayIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_member_cleanup_watermark_is_per_server(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("bot.guildId", 1), \
+                 patch("bot.guild_config_path", side_effect=lambda guild_id: root / str(guild_id) / "config.json"):
+                path_one = member_cleanup_date_path(1)
+                path_two = member_cleanup_date_path(2)
+            self.assertNotEqual(path_one, path_two)
+            moment = read_last_date(path_two)
+            write_last_date(moment, path_two)
+            self.assertEqual(read_last_date(path_two), moment)
+            self.assertTrue(path_two.is_file())
+
     async def test_foreign_channel_record_is_not_fetched(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "giveaways.db"
@@ -44,4 +61,31 @@ class GiveawayIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call.args[1] for call in panels.await_args_list], [config_one, config_two])
         self.assertEqual([call.args[1] for call in headers.await_args_list], [config_one, config_two])
         self.assertEqual(fake_client.panels_reconciled, {1, 2})
+
+    async def test_same_twitch_stream_notifies_each_server_once(self):
+        sent_one = AsyncMock()
+        sent_two = AsyncMock()
+        configs = {
+            1: {"guildId": 1, "managedResources": {}},
+            2: {"guildId": 2, "managedResources": {}},
+        }
+        guilds = {
+            1: SimpleNamespace(id=1, get_channel=lambda _id: SimpleNamespace(send=sent_one), get_role=lambda _id: None),
+            2: SimpleNamespace(id=2, get_channel=lambda _id: SimpleNamespace(send=sent_two), get_role=lambda _id: None),
+        }
+        client = SimpleNamespace(guilds=list(guilds.values()), get_guild=lambda guild_id: guilds[guild_id])
+        streams = [
+            (1, 100, "creator", True, {"id": "same-stream"}),
+            (2, 200, "creator", True, {"id": "same-stream"}),
+        ]
+        with patch("bot.client", client), \
+             patch("bot.active_guild_configs", return_value=iter((guilds[i], configs[i]) for i in (1, 2))), \
+             patch("bot.fetch_twitch_streams", return_value=streams), \
+             patch("bot.load_active_guild_config", side_effect=lambda guild_id: configs[guild_id]), \
+             patch("bot.remember_notified_stream"), \
+             patch("bot.giveaway_path", return_value=Path("unused.db")), \
+             patch("bot.notified", set()), patch("bot.notified_order", deque()):
+            await twitchloop.coro()
+        sent_one.assert_awaited_once()
+        sent_two.assert_awaited_once()
 

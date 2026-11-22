@@ -18,8 +18,7 @@ from Commands.giveaways import giveaway_path
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
 from guild_guard import ConfiguredGuildTree
-from guild_config import active_guild_configs
-from guild_config import load_active_guild_config
+from guild_config import active_guild_configs, guild_config_path, load_active_guild_config
 from dashboard_store import (
     claim_due_announcements, finish_announcement, mark_interrupted_announcements_failed,
     mark_response_alerted,
@@ -73,18 +72,18 @@ streamPingRole = int(
 clientsecret = config["twClientsecret"]
 friend = config["friendTwitch"]
 
-previous = set()
+previous = {}
 notified = set()
 notified_order = deque()
 twitch_token_cache = TwitchTokenCache()
-youtube_cache_primed = False
+youtube_cache_primed = set()
 youtube_last_error = None
 youtube_last_error_time = 0.0
 
 
-def fetch_youtube_content(limit):
+def fetch_youtube_content(limit, source=None):
     """Fetch recent channel entries away from the Discord event loop."""
-    return fetch_recent_youtube_content(ytchannel, limit)
+    return fetch_recent_youtube_content(source or ytchannel, limit)
 
 
 def report_youtube_failure(context, exc):
@@ -230,10 +229,15 @@ async def update_stats():
                 print(f"Could not update {stat_key} channel {channel_id}: {exc}")
 
 
-def read_last_date():
+def member_cleanup_date_path(guild_id):
+    return BASE_DIR / "date.json" if guild_id == guildId else guild_config_path(guild_id).with_name("cleanup-date.json")
+
+
+def read_last_date(path=None):
     """Read the cleanup watermark, recreating a missing or malformed file."""
+    path = path or BASE_DIR / "date.json"
     try:
-        with open(BASE_DIR / "date.json", "r", encoding="utf-8") as file:
+        with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
         last_date_str = data.get("lastDate") if isinstance(data, dict) else None
         if last_date_str:
@@ -242,30 +246,34 @@ def read_last_date():
         print(f"[!] Resetting invalid member-cleanup date file: {exc}")
 
     initial_date = datetime.datetime.utcnow()
-    write_last_date(initial_date)
+    write_last_date(initial_date, path)
     return initial_date
 
 
-def write_last_date(last_date):
-    with open(BASE_DIR / "date.json", "w", encoding="utf-8") as file:
+def write_last_date(last_date, path=None):
+    path = path or BASE_DIR / "date.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as file:
         json.dump({"lastDate": last_date.isoformat()}, file)
 
 
 @tasks.loop(minutes=59)
 async def check_members_task():
-    if not kickMemberFunction:
-        return
+    for guild, guild_config in active_guild_configs(client.guilds):
+        if guild_config.get("kickMemberFunction"):
+            await check_guild_members(guild, guild_config)
+
+
+async def check_guild_members(guild, guild_config):
+    """Apply the explicitly enabled cleanup policy within one server only."""
     try:
         current_time = datetime.datetime.utcnow()
-        last_date = read_last_date()
+        date_path = member_cleanup_date_path(guild.id)
+        last_date = read_last_date(date_path)
 
         if (current_time - last_date).days <= 30:
             return
-        guild = client.get_guild(guildId)
-        if guild is None:
-            print("Guild not found.")
-            return
-        verified_role = discord.utils.get(guild.roles, id=verifiedRoleId)
+        verified_role = discord.utils.get(guild.roles, id=guild_config["verified"])
         if verified_role is None:
             print("Verified role not found in the guild.")
             return
@@ -290,10 +298,10 @@ async def check_members_task():
                 )
             except (discord.HTTPException, OSError) as exc:
                 print(f"Could not process member {member}: {exc}")
-        write_last_date(current_time)
+        write_last_date(current_time, date_path)
     except Exception as exc:
         # Keep the recurring loop alive if Discord or the watermark file fails.
-        print(f"[!] Member cleanup check failed; will retry later: {exc}")
+        print(f"[!] Member cleanup check failed in {guild.id}; will retry later: {exc}")
 
 
 # @client.event
@@ -339,16 +347,17 @@ async def on_ready():
         restore_role_buttons_for_guild(guild)
 
     if not client.twitch_state_loaded:
-        try:
-            retained_streams = await asyncio.to_thread(
-                load_notified_stream_ids,
-                BASE_DIR / "Data" / "users.db",
-            )
-            notified.update(retained_streams)
-            notified_order.extend(retained_streams)
-            print(f"[OK] Restored {len(retained_streams)} Twitch notification ID(s).")
-        except (OSError, sqlite3.Error) as exc:
-            print(f"[!] Could not restore Twitch notification state: {exc}")
+        for guild, _guild_config in active_guild_configs(client.guilds):
+            try:
+                retained_streams = await asyncio.to_thread(
+                    load_notified_stream_ids, giveaway_path(guild.id),
+                )
+                keys = [(guild.id, stream_id) for stream_id in retained_streams]
+                notified.update(keys)
+                notified_order.extend(keys)
+                print(f"[OK] Restored {len(keys)} Twitch notification ID(s) in {guild.id}.")
+            except (OSError, sqlite3.Error) as exc:
+                print(f"[!] Could not restore Twitch notification state in {guild.id}: {exc}")
         client.twitch_state_loaded = True
 
     for guild, guild_config in active_guild_configs(client.guilds):
@@ -357,13 +366,16 @@ async def on_ready():
     if not update_stats.is_running():
         update_stats.start()
 
-    if kickMemberFunction and verifiedRoleId and not check_members_task.is_running():
+    if any(c.get("kickMemberFunction") and c.get("verified") for _, c in active_guild_configs(client.guilds)) and not check_members_task.is_running():
         check_members_task.start()
 
-    if ytchannel and youtubeid and not youtubeloop.is_running():
+    if any(c.get("ytChannel") and c.get("ytChannelId") for _, c in active_guild_configs(client.guilds)) and not youtubeloop.is_running():
         youtubeloop.start()
 
-    twitch_enabled = clientid and clientsecret and ((twchannel and twitchid) or friend)
+    twitch_enabled = clientid and clientsecret and any(
+        (c.get("twitchChannelName") and c.get("twChannelId")) or c.get("friendTwitch")
+        for _, c in active_guild_configs(client.guilds)
+    )
     if twitch_enabled and not twitchloop.is_running():
         twitchloop.start()
 
@@ -688,17 +700,20 @@ async def check_guild_giveaways(guild):
             print(f"[!] Unexpected giveaway error for {giveaway_id}; will retry: {exc}")
 
 
-def fetch_twitch_streams():
+def fetch_twitch_streams(guild_configs):
     """Return configured live streams using bounded blocking HTTP calls."""
     with requests.Session() as session:
         configured_channels = []
-        if twchannel and twitchid:
-            configured_channels.append((twitchid, twchannel, True))
-        configured_channels.extend(
-            (item.get("friendChannelId"), item.get("friendChannel"), False)
-            for item in friend
-            if item.get("friendChannelId") and item.get("friendChannel")
-        )
+        for guild_id, guild_config in guild_configs:
+            if guild_config.get("twitchChannelName") and guild_config.get("twChannelId"):
+                configured_channels.append((
+                    guild_id, guild_config["twChannelId"], guild_config["twitchChannelName"], True,
+                ))
+            configured_channels.extend(
+                (guild_id, item.get("friendChannelId"), item.get("friendChannel"), False)
+                for item in guild_config.get("friendTwitch", [])
+                if item.get("friendChannelId") and item.get("friendChannel")
+            )
 
         for authentication_attempt in range(2):
             access_token = twitch_token_cache.get_access_token(
@@ -713,7 +728,7 @@ def fetch_twitch_streams():
             }
             retry_authentication = False
             live_streams = []
-            for discord_channel_id, twitch_name, is_primary in configured_channels:
+            for guild_id, discord_channel_id, twitch_name, is_primary in configured_channels:
                 response = session.get(
                     "https://api.twitch.tv/helix/streams",
                     params={"user_login": twitch_name},
@@ -729,7 +744,7 @@ def fetch_twitch_streams():
                 streams = response.json().get("data", [])
                 if streams:
                     live_streams.append(
-                        (discord_channel_id, twitch_name, is_primary, streams[0])
+                        (guild_id, discord_channel_id, twitch_name, is_primary, streams[0])
                     )
             if retry_authentication:
                 continue
@@ -740,13 +755,17 @@ def fetch_twitch_streams():
 @tasks.loop(seconds=60)
 async def twitchloop():
     try:
-        streams = await asyncio.to_thread(fetch_twitch_streams)
+        settings = [(guild.id, guild_config) for guild, guild_config in active_guild_configs(client.guilds)]
+        streams = await asyncio.to_thread(fetch_twitch_streams, settings)
     except Exception as exc:
         print(f"[!] Twitch notification check failed: {exc}")
         return
 
-    for discord_channel_id, twitch_name, is_primary, stream_data in streams:
-        channel = client.get_channel(discord_channel_id)
+    for guild_id, discord_channel_id, twitch_name, is_primary, stream_data in streams:
+        guild = client.get_guild(guild_id)
+        if guild is None:
+            continue
+        channel = guild.get_channel(discord_channel_id)
         if channel is None:
             print(
                 f"[!] Twitch notification channel {discord_channel_id} is unavailable."
@@ -754,13 +773,20 @@ async def twitchloop():
             continue
 
         stream_id = stream_data.get("id")
-        if not stream_id or stream_id in notified:
+        key = (guild_id, stream_id)
+        if not stream_id or key in notified:
             continue
         game_name = stream_data.get("game_name")
         if is_primary:
-            role_ping = f"<@&{streamPingRole}> " if streamPingRole else ""
-            message = f"**{role_ping}I'm live!**\nhttps://www.twitch.tv/{twchannel}"
+            guild_config = load_active_guild_config(guild_id)
+            ping_role_id = int(
+                guild_config.get("managedResources", {}).get("selfRoles", {})
+                .get("pings", {}).get("Now Streaming Pings", 0) or 0
+            )
+            role_ping = f"<@&{ping_role_id}> " if ping_role_id and guild.get_role(ping_role_id) else ""
+            message = f"**{role_ping}I'm live!**\nhttps://www.twitch.tv/{twitch_name}"
         else:
+            ping_role_id = 0
             message = (
                 f"**Server friend '{twitch_name}' is live!**\n"
                 f"https://www.twitch.tv/{twitch_name}"
@@ -769,7 +795,7 @@ async def twitchloop():
             message += f"\nPlaying: {game_name}"
         try:
             allowed_roles = (
-                [discord.Object(id=streamPingRole)] if is_primary and streamPingRole else []
+                [discord.Object(id=ping_role_id)] if is_primary and role_ping else []
             )
             await channel.send(
                 message,
@@ -786,12 +812,12 @@ async def twitchloop():
                 f"will retry: {exc}"
             )
             continue
-        notified.add(stream_id)
-        notified_order.append(stream_id)
+        notified.add(key)
+        notified_order.append(key)
         try:
             await asyncio.to_thread(
                 remember_notified_stream,
-                BASE_DIR / "Data" / "users.db",
+                giveaway_path(guild_id),
                 stream_id,
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
@@ -802,40 +828,40 @@ async def twitchloop():
 
 @tasks.loop(minutes=5)
 async def youtubeloop():
-    global youtube_cache_primed
-    try:
-        channel = client.get_channel(youtubeid)
+    for guild, guild_config in active_guild_configs(client.guilds):
+        source = guild_config.get("ytChannel")
+        channel_id = int(guild_config.get("ytChannelId", 0) or 0)
+        if not source or not channel_id:
+            continue
+        channel = guild.get_channel(channel_id)
         if channel is None:
-            print(f"[!] YouTube notification channel {youtubeid} is unavailable.")
-            return
-
-        fetched_content = await asyncio.to_thread(fetch_youtube_content, 3)
-        mark_youtube_success()
-
-        if not youtube_cache_primed:
+            print(f"[!] YouTube notification channel {channel_id} is unavailable in {guild.id}.")
+            continue
+        try:
+            fetched_content = await asyncio.to_thread(fetch_youtube_content, 3, source)
+            mark_youtube_success()
+            seen = previous.setdefault(guild.id, set())
+            if guild.id not in youtube_cache_primed:
+                for results in fetched_content:
+                    for result in results:
+                        video_id = result.get("videoId")
+                        if video_id:
+                            seen.add(video_id)
+                youtube_cache_primed.add(guild.id)
+                print(f"[OK] YouTube notifications initialized in {guild.id} with {len(seen)} recent item(s).")
+                continue
             for results in fetched_content:
                 for result in results:
                     video_id = result.get("videoId")
-                    if video_id:
-                        previous.add(video_id)
-            youtube_cache_primed = True
-            print(
-                f"[OK] YouTube notifications initialized with {len(previous)} recent item(s)."
-            )
-            return
-
-        for results in fetched_content:
-            for result in results:
-                video_id = result.get("videoId")
-                if video_id and video_id not in previous:
-                    await channel.send(
-                        "**New YouTube upload**\n"
-                        f"https://www.youtube.com/watch?v={video_id}",
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                    previous.add(video_id)
-    except Exception as exc:
-        report_youtube_failure("notification check", exc)
+                    if video_id and video_id not in seen:
+                        await channel.send(
+                            "**New YouTube upload**\n"
+                            f"https://www.youtube.com/watch?v={video_id}",
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                        seen.add(video_id)
+        except Exception as exc:
+            report_youtube_failure(f"notification check in {guild.id}", exc)
 
 
 @client.event
@@ -848,6 +874,15 @@ async def on_guild_join(guild: discord.Guild):
     await client.tree.sync(guild=guild)
     restore_role_buttons_for_guild(guild)
     await reconcile_managed_guild(guild, guild_config)
+    if guild_config.get("kickMemberFunction") and guild_config.get("verified") and not check_members_task.is_running():
+        check_members_task.start()
+    if guild_config.get("ytChannel") and guild_config.get("ytChannelId") and not youtubeloop.is_running():
+        youtubeloop.start()
+    if clientid and clientsecret and (
+        (guild_config.get("twitchChannelName") and guild_config.get("twChannelId"))
+        or guild_config.get("friendTwitch")
+    ) and not twitchloop.is_running():
+        twitchloop.start()
     ticket_cog = client.get_cog("OnInteractionEvent")
     if ticket_cog is not None:
         await ticket_cog._secure_ticket_guild(guild, guild_config)
