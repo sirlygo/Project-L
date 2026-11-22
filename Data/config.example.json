@@ -13,6 +13,7 @@
   "modmail": 0,
   "kickMemberFunction": false,
   "logMessageContent": false,
+  "moderation": {"antiSpamEnabled": false, "blockInviteLinks": false},
   "voicecategory": 0,
   "streamRole": 0,
   "ytChannel": "",
@@ -35,6 +36,9 @@
     "giveawaysChannel": 0,
     "publicVoiceChannel": 0,
     "xpChannel": 0,
+    "informationCategory": 0,
+    "announcementsCategory": 0,
+    "generalChatChannel": 0,
     "levelLounges": {"5": 0, "15": 0, "30": 0},
     "staffRoles": {"admin": 0, "mod": 0},
     "levelRoles": {

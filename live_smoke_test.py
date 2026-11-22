@@ -103,6 +103,9 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "giveaways channel": managed.get("giveawaysChannel"),
         "public voice channel": managed.get("publicVoiceChannel"),
         "XP progress channel": managed.get("xpChannel"),
+        "information category": managed.get("informationCategory"),
+        "announcements category": managed.get("announcementsCategory"),
+        "general chat channel": managed.get("generalChatChannel"),
     }
     for key, value in (config.get("tickets") or {}).items():
         required[f"ticket resource {key}"] = value

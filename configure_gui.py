@@ -207,8 +207,8 @@ class ProjectLSetupWizard:
         for key, title in (
             ("core", "1. Core"),
             ("channels", "2. Roles"),
-            ("tickets", "3. Automatic Setup"),
-            ("stats", "4. Server Stats"),
+            ("tickets", "3. Server Layout"),
+            ("moderation", "4. Moderation"),
             ("integrations", "5. Integrations"),
             ("branding", "6. Art & Branding"),
         ):
@@ -219,7 +219,7 @@ class ProjectLSetupWizard:
         self._build_core_tab()
         self._build_channels_tab()
         self._build_tickets_tab()
-        self._build_stats_tab()
+        self._build_moderation_tab()
         self._build_integrations_tab()
         self._build_branding_tab()
 
@@ -465,7 +465,7 @@ class ProjectLSetupWizard:
         )
 
         self._section(
-            "core",
+            "moderation",
             "Safety",
             "This feature is disabled by default. When enabled, the monthly sweep only removes non-bot members who have remained unverified for over 30 days.",
         )
@@ -474,11 +474,11 @@ class ProjectLSetupWizard:
         )
         self.variables["kickMemberFunction"] = cleanup
         self.ttk.Checkbutton(
-            self.tabs["core"].content,
+            self.tabs["moderation"].content,
             text="Enable 30-day unverified-member cleanup",
             variable=cleanup,
         ).grid(
-            row=self.tabs["core"].content.grid_size()[1],
+            row=self.tabs["moderation"].content.grid_size()[1],
             column=0,
             sticky="w",
             pady=(2, 12),
@@ -489,24 +489,24 @@ class ProjectLSetupWizard:
         )
         self.variables["logMessageContent"] = message_logging
         self.ttk.Checkbutton(
-            self.tabs["core"].content,
+            self.tabs["moderation"].content,
             text="Include edited/deleted message text and attachment URLs in logs",
             variable=message_logging,
         ).grid(
-            row=self.tabs["core"].content.grid_size()[1],
+            row=self.tabs["moderation"].content.grid_size()[1],
             column=0,
             sticky="w",
             pady=(2, 2),
         )
         self.ttk.Label(
-            self.tabs["core"].content,
+            self.tabs["moderation"].content,
             text=(
                 "Privacy-sensitive and disabled by default. Metadata-only logging "
                 "continues when this option is off."
             ),
             style="Help.TLabel",
         ).grid(
-            row=self.tabs["core"].content.grid_size()[1],
+            row=self.tabs["moderation"].content.grid_size()[1],
             column=0,
             sticky="w",
             pady=(0, 12),
@@ -567,7 +567,12 @@ class ProjectLSetupWizard:
         self._section(
             "tickets",
             "Public resources",
-            "A community category with read-only welcome and setup-panel channels and, when an integration is enabled, one shared YouTube/Twitch alerts channel.",
+            "An Information category with #verify, #welcome, and rules; a separate Announcements category for announcements, boosts, and giveaways; and a Community category for chat, roles, voice, and XP.",
+        )
+        self._section(
+            "tickets",
+            "Server Stats",
+            "Five locked voice counters stay at the top of the server. The bot can view and refresh them; members cannot join them.",
         )
         self._section(
             "tickets",
@@ -580,16 +585,26 @@ class ProjectLSetupWizard:
             "Setup never deletes channels. It keeps valid saved resources, finds Project L resources by their managed marker, and creates only what is missing.",
         )
 
-    def _build_stats_tab(self):
+    def _build_moderation_tab(self):
         self._section(
-            "stats",
-            "Automatic server statistics",
-            "Project L creates a Server Stats category with five locked voice counters for members, bots, boosts, online members, and offline members. Members can see the counters but cannot join them.",
+            "moderation", "Automatic filters",
+            "Optional filters are off by default. Staff with Manage Messages are exempt. The bot deletes matching messages and privately notifies a member at most once per minute.",
         )
+        for key, label in (
+            ("antiSpamEnabled", "Remove messages after more than 5 in 10 seconds"),
+            ("blockInviteLinks", "Remove Discord invite links from nonstaff"),
+        ):
+            value = self.tk.BooleanVar(value=bool(self.initial_values.get(key, False)))
+            self.variables[key] = value
+            self.ttk.Checkbutton(
+                self.tabs["moderation"].content, text=label, variable=value,
+            ).grid(row=self.tabs["moderation"].content.grid_size()[1], column=0,
+                   sticky="w", pady=(4, 8))
         self._section(
-            "stats",
-            "Required bot permission",
-            "The bot must have Manage Channels so it can create these resources and refresh the counter names every six minutes.",
+            "moderation", "Staff commands",
+            "/warn, /warnings, /timeout, /untimeout, /kick, /ban, /unban, "
+            "/lock, /unlock, /purge, and /nuke remain permission-checked in Discord. "
+            "The Admin and Moderator roles are never assigned automatically.",
         )
 
     def _build_integrations_tab(self):

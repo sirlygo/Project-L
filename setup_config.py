@@ -211,6 +211,9 @@ def flatten_config(config: Mapping[str, Any], role_ids: list[int]) -> dict[str, 
     }
     values["kickMemberFunction"] = bool(config.get("kickMemberFunction", False))
     values["logMessageContent"] = bool(config.get("logMessageContent", False))
+    moderation = config.get("moderation") or {}
+    values["antiSpamEnabled"] = bool(moderation.get("antiSpamEnabled", False))
+    values["blockInviteLinks"] = bool(moderation.get("blockInviteLinks", False))
     for flat_key, path in NESTED_ID_FIELDS.items():
         values[flat_key] = _mapping_value(config, path)
     friends = config.get("friendTwitch", [])
@@ -281,6 +284,10 @@ def build_configuration(
 
     config["kickMemberFunction"] = bool(values.get("kickMemberFunction", False))
     config["logMessageContent"] = bool(values.get("logMessageContent", False))
+    config["moderation"] = {
+        "antiSpamEnabled": bool(values.get("antiSpamEnabled", False)),
+        "blockInviteLinks": bool(values.get("blockInviteLinks", False)),
+    }
 
     try:
         config["friendTwitch"] = parse_twitch_friends_text(
@@ -456,6 +463,9 @@ def configuration_status(
                     "giveawaysChannel",
                     "publicVoiceChannel",
                     "xpChannel",
+                    "informationCategory",
+                    "announcementsCategory",
+                    "generalChatChannel",
                 )
             )
             required_resource_ids.extend((managed.get("levelLounges") or {}).values())

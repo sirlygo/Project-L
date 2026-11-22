@@ -25,7 +25,7 @@ from discord_validation import (
 from discord_validation import (
     required_bot_permissions as _required_bot_permissions,
 )
-from self_roles import ROLE_GROUPS, role_name
+from self_roles import ROLE_COLORS, ROLE_GROUPS, role_name
 
 RequestJson = Callable[..., Any]
 
@@ -388,6 +388,8 @@ def _ensure_role(
     preferred_id: int,
     mentionable: bool,
     required_permissions: int = 0,
+    color: int = 0,
+    hoist: bool = False,
 ) -> dict[str, Any]:
     """Reuse an assignable role or create one with only required permissions."""
     top_role_key = _bot_top_role_key(snapshot)
@@ -430,8 +432,8 @@ def _ensure_role(
             {
                 "name": name,
                 "permissions": str(required_permissions),
-                "color": 0,
-                "hoist": False,
+                "color": color,
+                "hoist": hoist,
                 "mentionable": mentionable,
             },
         )
@@ -449,6 +451,11 @@ def _ensure_role(
         updates["mentionable"] = mentionable
     if _permission_value(role.get("permissions")) != required_permissions:
         updates["permissions"] = str(required_permissions)
+    if str(role.get("name", "")).startswith("Project L "):
+        if _permission_value(role.get("color")) != color:
+            updates["color"] = color
+        if bool(role.get("hoist", False)) != hoist:
+            updates["hoist"] = hoist
     if updates:
         updated = request_json(
             "PATCH",
@@ -595,7 +602,12 @@ def _finish_verification_gate(
 
 def _stats_overwrites(snapshot: _DiscordSnapshot) -> list[dict[str, Any]]:
     deny_voice = PERMISSION_BITS["connect"] | PERMISSION_BITS["speak"]
-    bot_allow = PERMISSION_BITS["view_channel"] | PERMISSION_BITS["manage_channels"]
+    bot_allow = (
+        PERMISSION_BITS["view_channel"]
+        | PERMISSION_BITS["manage_channels"]
+        | PERMISSION_BITS["connect"]
+        | PERMISSION_BITS["speak"]
+    )
     return [
         _overwrite(snapshot.guild_id, 0, deny=deny_voice),
         _overwrite(snapshot.bot_user_id, 1, allow=bot_allow),
@@ -728,6 +740,10 @@ def _find_resource(
                 (marker is not None and channel.get("topic") == marker)
                 or channel_name.casefold() == name.casefold()
                 or any(channel_name.startswith(prefix) for prefix in name_prefixes)
+                or (channel_type == CATEGORY_CHANNEL and (
+                    channel_name.startswith("PROJECT L •")
+                    or channel_name.startswith("✦▬▬")
+                ))
             )
             return channel, owned
 
@@ -910,6 +926,9 @@ def configuration_without_managed_channels(
             "giveawaysChannel",
             "publicVoiceChannel",
             "xpChannel",
+            "informationCategory",
+            "announcementsCategory",
+            "generalChatChannel",
         ):
             clean[MANAGED_RESOURCES_KEY][child] = 0
     for friend in clean.get("friendTwitch", []):
@@ -943,6 +962,7 @@ def provision_guild_resources(
         preferred_id=_permission_value(updated_config.get("verified")),
         mentionable=False,
         required_permissions=PERMISSION_BITS["view_channel"],
+        color=0x65FF00,
     )
     updated_config["verified"] = _permission_value(verified_role.get("id"))
     streamer_role = _ensure_role(
@@ -955,6 +975,7 @@ def provision_guild_resources(
         name="Project L Streamer",
         preferred_id=_permission_value(updated_config.get("streamRole")),
         mentionable=False,
+        color=0x9B59B6,
     )
     updated_config["streamRole"] = _permission_value(streamer_role.get("id"))
 
@@ -968,6 +989,8 @@ def provision_guild_resources(
             timeout=timeout, report=report, label=key, name=label,
             preferred_id=_permission_value(staff_roles.get(key)),
             mentionable=False, required_permissions=permissions,
+            color=0xF1C40F if key == "admin" else 0x3498DB,
+            hoist=True,
         )
         staff_roles[key] = _permission_value(role.get("id"))
 
@@ -982,6 +1005,9 @@ def provision_guild_resources(
                 name=f"Project L {track.title()} Level {level}",
                 preferred_id=_permission_value(track_roles.get(str(level))),
                 mentionable=False,
+                color={5: 0x1ABC9C, 15: 0x3498DB, 30: 0xF1C40F}[level]
+                if track == "chat" else {5: 0xAF7AC5, 15: 0x9B59B6, 30: 0xF39C12}[level],
+                hoist=level == 30,
             )
             track_roles[str(level)] = _permission_value(role.get("id"))
 
@@ -1028,6 +1054,7 @@ def provision_guild_resources(
                 name=role_name(group, choice),
                 preferred_id=_permission_value(group_roles.get(choice)),
                 mentionable=False,
+                color=ROLE_COLORS.get(choice, 0x65FF00),
             )
             group_roles[choice] = _permission_value(role.get("id"))
 
@@ -1044,11 +1071,29 @@ def provision_guild_resources(
         report=report,
         key="community-category",
         label="community category",
-        name="PROJECT L • COMMUNITY",
+        name="✦▬▬ ☆ 𝐂𝐎𝐌𝐌𝐔𝐍𝐈𝐓𝐘 ☆▬▬✦",
         channel_type=CATEGORY_CHANNEL,
         preferred_ids=[_permission_value(managed.get("communityCategory"))],
     )
     managed["communityCategory"] = _channel_id(community)
+
+    information = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="information-category",
+        label="information category", name="✦▬▬ ☆ 𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("informationCategory"))],
+    )
+    managed["informationCategory"] = _channel_id(information)
+
+    announcements_category = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="announcements-category",
+        label="announcements category", name="✦▬▬ ☆ 𝐀𝐍𝐍𝐎𝐔𝐍𝐂𝐄𝐌𝐄𝐍𝐓𝐒 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("announcementsCategory"))],
+    )
+    managed["announcementsCategory"] = _channel_id(announcements_category)
 
     staff = _ensure_resource(
         snapshot=snapshot,
@@ -1058,7 +1103,7 @@ def provision_guild_resources(
         report=report,
         key="staff-category",
         label="staff category",
-        name="PROJECT L • STAFF",
+        name="✦▬▬ ☆ 𝐒𝐓𝐀𝐅𝐅 ☆▬▬✦",
         channel_type=CATEGORY_CHANNEL,
         preferred_ids=[_permission_value(managed.get("staffCategory"))],
         overwrites=private_overwrites,
@@ -1077,7 +1122,7 @@ def provision_guild_resources(
         name="verify",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(updated_config.get("welcome"))],
-        parent_id=_channel_id(community),
+        parent_id=_channel_id(information),
         overwrites=welcome_overwrites,
     )
     updated_config["welcome"] = _channel_id(welcome)
@@ -1085,20 +1130,31 @@ def provision_guild_resources(
     updated_config["welcome_images"] = 0
 
     community_channels = (
-        ("welcomeMessagesChannel", "general", "general", None),
-        ("rulesChannel", "rules", "rules", public_overwrites),
-        ("announcementsChannel", "announcements", "announcements", public_overwrites),
-        ("boostsChannel", "server-boosts", "server boosts", public_overwrites),
-        ("giveawaysChannel", "giveaways", "giveaways", public_overwrites),
-        ("xpChannel", "xp-progress", "XP progress", public_overwrites),
+        ("welcomeMessagesChannel", "welcome", "welcome", None, information),
+        ("rulesChannel", "📜〢ʀᴜʟᴇs", "rules", public_overwrites, information),
+        ("announcementsChannel", "📢〢ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs", "announcements", public_overwrites, announcements_category),
+        ("boostsChannel", "🚀〢sᴇʀᴠᴇʀ-ʙᴏᴏsᴛs", "server boosts", public_overwrites, announcements_category),
+        ("giveawaysChannel", "🎁〢ɢɪᴠᴇᴀᴡᴀʏs", "giveaways", public_overwrites, announcements_category),
+        ("xpChannel", "✨〢xᴘ-ᴘʀᴏɢʀᴇss", "XP progress", public_overwrites, community),
+        ("generalChatChannel", "💬〢ɢᴇɴᴇʀᴀʟ-ᴄʜᴀᴛ", "general chat", None, community),
     )
-    for config_key, name, label, overwrites in community_channels:
+    for config_key, name, label, overwrites, parent in community_channels:
         channel = _ensure_resource(
             snapshot=snapshot, request_json=request_json, token=token,
-            timeout=timeout, report=report, key=name, label=f"{label} channel",
+            timeout=timeout, report=report,
+            key={
+                "welcomeMessagesChannel": "general",
+                "rulesChannel": "rules",
+                "announcementsChannel": "announcements",
+                "boostsChannel": "server-boosts",
+                "giveawaysChannel": "giveaways",
+                "xpChannel": "xp-progress",
+                "generalChatChannel": "general-chat",
+            }[config_key],
+            label=f"{label} channel",
             name=name, channel_type=TEXT_CHANNEL,
             preferred_ids=[_permission_value(managed.get(config_key))],
-            parent_id=_channel_id(community), overwrites=overwrites,
+            parent_id=_channel_id(parent), overwrites=overwrites,
         )
         managed[config_key] = _channel_id(channel)
 
@@ -1226,31 +1282,31 @@ def provision_guild_resources(
         (
             "modmail",
             "modmail category",
-            "PROJECT L • MODMAIL",
+            "✦▬▬ ☆ 𝐌𝐎𝐃𝐌𝐀𝐈𝐋 ☆▬▬✦",
             ("modmail",),
         ),
         (
             "help-tickets",
             "help ticket category",
-            "PROJECT L • HELP TICKETS",
+            "✦▬▬ ☆ 𝐇𝐄𝐋𝐏 𝐓𝐈𝐂𝐊𝐄𝐓𝐒 ☆▬▬✦",
             ("tickets", "category_help"),
         ),
         (
             "suggestion-tickets",
             "suggestion ticket category",
-            "PROJECT L • SUGGESTION TICKETS",
+            "✦▬▬ ☆ 𝐒𝐔𝐆𝐆𝐄𝐒𝐓𝐈𝐎𝐍𝐒 ☆▬▬✦",
             ("tickets", "category_suggestions"),
         ),
         (
             "staff-reports",
             "staff report category",
-            "PROJECT L • STAFF REPORTS",
+            "✦▬▬ ☆ 𝐒𝐓𝐀𝐅𝐅 𝐑𝐄𝐏𝐎𝐑𝐓𝐒 ☆▬▬✦",
             ("tickets", "category_report"),
         ),
         (
             "private-voice",
             "private voice category",
-            "PROJECT L • PRIVATE VOICE",
+            "✦▬▬ ☆ 𝐏𝐑𝐈𝐕𝐀𝐓𝐄 𝐕𝐎𝐈𝐂𝐄 ☆▬▬✦",
             ("voicecategory",),
         ),
     )
@@ -1287,7 +1343,7 @@ def provision_guild_resources(
         report=report,
         key="stats-category",
         label="server statistics category",
-        name="PROJECT L • SERVER STATS",
+        name="✦▬▬ ☆ 𝐒𝐄𝐑𝐕𝐄𝐑 𝐒𝐓𝐀𝐓𝐒 ☆▬▬✦",
         channel_type=CATEGORY_CHANNEL,
         preferred_ids=[_permission_value(managed.get("statsCategory"))],
         overwrites=stats_overwrites,

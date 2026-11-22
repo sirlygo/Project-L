@@ -196,7 +196,7 @@ async def update_stats():
             if not channel_id:
                 continue
             try:
-                channel = await guild.fetch_channel(channel_id)
+                channel = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
 
                 if channel:
                     stat_value = locals()[stat_key]
@@ -205,7 +205,9 @@ async def update_stats():
                     )  # Get the corresponding channel name
                     # print('before the end')
                     # print(f'{channel_name} {stat_value}')
-                    await channel.edit(name=f"{channel_name} {stat_value}")
+                    desired_name = f"{channel_name} {stat_value}"
+                    if channel.name != desired_name:
+                        await channel.edit(name=desired_name)
                     # print('hey i reached the end')
                 else:
                     print(f"Channel not found for {stat_key}.")
@@ -360,13 +362,33 @@ async def on_ready():
             print("[!] Panel setup needs attention: " + "; ".join(panel_report.failed))
         client.panels_reconciled = not panel_report.failed
 
-    stats_id = config.get("managedResources", {}).get("statsCategory", 0)
-    stats_category = client.get_channel(int(stats_id or 0))
-    if isinstance(stats_category, discord.CategoryChannel) and stats_category.position != 0:
-        try:
-            await stats_category.edit(position=0, reason="Keep Project L server stats at the top")
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[!] Could not move server stats to top: {exc}")
+    if not client.layout_reconciled:
+        managed = config.get("managedResources", {})
+        category_order = (
+            "statsCategory", "informationCategory", "announcementsCategory",
+            "communityCategory", "staffCategory", "modmail", "voicecategory",
+        )
+        ordered_ids = [
+            int(config.get(key, 0) if key in ("modmail", "voicecategory") else managed.get(key, 0) or 0)
+            for key in category_order
+        ]
+        ordered_ids.extend(int(config.get("tickets", {}).get(key, 0) or 0) for key in (
+            "category_help", "category_suggestions", "category_report"
+        ))
+        all_positioned = True
+        for position, category_id in enumerate(ordered_ids):
+            category = client.get_channel(category_id)
+            if not isinstance(category, discord.CategoryChannel):
+                all_positioned = False
+                continue
+            if category.position == position:
+                continue
+            try:
+                await category.edit(position=position, reason="Organize Project L server categories")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[!] Could not position category {category_id}: {exc}")
+                all_positioned = False
+        client.layout_reconciled = all_positioned
 
     if guildId and any(serverStats.values()) and not update_stats.is_running():
         update_stats.start()
@@ -912,6 +934,7 @@ def configure_client_state():
     client.persistent_state_loaded = False
     client.twitch_state_loaded = False
     client.panels_reconciled = False
+    client.layout_reconciled = False
     client.configured_guild_id = guildId
     client.colour = discord.Colour.from_rgb(101, 255, 0)
     client.modmailid = modmailid

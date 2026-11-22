@@ -178,6 +178,7 @@ class DiscordProvisioningTests(unittest.TestCase):
                 )
                 self.assertEqual(role["name"], role_name(group, choice))
                 self.assertEqual(int(role["permissions"]), 0)
+                self.assertGreater(int(role["color"]), 0)
         self.assertTrue(config["managedResources"]["panelsChannel"])
         self.assertNotEqual(
             config["managedResources"]["privateVoicePanelChannel"],
@@ -194,6 +195,9 @@ class DiscordProvisioningTests(unittest.TestCase):
             self.assertTrue(config["managedResources"][key])
         self.assertTrue(config["managedResources"]["staffRoles"]["admin"])
         self.assertTrue(config["managedResources"]["staffRoles"]["mod"])
+        self.assertTrue(config["managedResources"]["informationCategory"])
+        self.assertTrue(config["managedResources"]["announcementsCategory"])
+        self.assertTrue(config["managedResources"]["generalChatChannel"])
         self.assertEqual(len(config["managedResources"]["levelRoles"]["chat"]), 3)
         self.assertEqual(len(config["managedResources"]["levelRoles"]["voice"]), 3)
         for key, name in (

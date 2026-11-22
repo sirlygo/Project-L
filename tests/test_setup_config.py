@@ -75,6 +75,9 @@ class SetupConfigTests(unittest.TestCase):
             "giveawaysChannel",
             "publicVoiceChannel",
             "xpChannel",
+            "informationCategory",
+            "announcementsCategory",
+            "generalChatChannel",
         ):
             config["managedResources"][key] = generated_id()
         for mapping_name in ("levelLounges", "staffRoles"):
@@ -92,6 +95,18 @@ class SetupConfigTests(unittest.TestCase):
         self.assertEqual(config["guildId"], 123456789)
         self.assertEqual(config["token"], "local-token")
         self.assertEqual(role_ids, [])
+
+    def test_moderation_dashboard_options_round_trip(self):
+        values = self.valid_values()
+        values["antiSpamEnabled"] = True
+        values["blockInviteLinks"] = True
+        config, _roles = build_configuration(values, self.example, environ={})
+        self.assertEqual(config["moderation"], {
+            "antiSpamEnabled": True, "blockInviteLinks": True,
+        })
+        restored = flatten_config(config, [])
+        self.assertTrue(restored["antiSpamEnabled"])
+        self.assertTrue(restored["blockInviteLinks"])
 
     def test_automatic_setup_can_create_verified_role_with_cleanup_enabled(self):
         values = self.valid_values()

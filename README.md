@@ -39,8 +39,9 @@ wizard.
 5. Project L creates or reuses its verified and streamer roles, secured
    categories and channels, statistics counters, a self-roles channel, a
    `create-private-voice-channel` panel channel, and a `help` ticket channel. It
-   also creates `#verify`, `#general`, rules, announcements, boosts, giveaways,
-   XP progress, three level lounges, and a public Custom Voice Chat. It
+   also creates `#verify`, `#welcome`, a general chat channel, rules,
+   announcements, boosts, giveaways, XP progress, three level lounges,
+   and a public Custom Voice Chat. It
    remembers all generated IDs automatically; no channel or category IDs are
    requested.
 6. Start the bot:
@@ -64,10 +65,16 @@ anything missing, and saves generated IDs to the local, Git-ignored
 `Data/config.json` and `Data/roles.json` files. Running setup again is
 idempotent and does not delete server channels.
 
-The setup reuses the managed welcome channel as `#verify` instead of creating
-an extra welcome channel. The bot posts its welcome messages in `#general`.
-Rules and announcements are read-only for regular members; add your own rules
-and announcement text after setup.
+The setup reuses the original managed welcome channel as `#verify`, preserving
+its history, and uses a separate `#welcome` for the bot's welcome messages.
+An Information category holds verify, welcome, and rules; an Announcements
+category holds announcements, boosts, and giveaways. Rules and announcements
+are read-only for regular members; add your own text after setup.
+
+The setup window combines descriptive pages into Server Layout and adds a
+Moderation page. Its optional anti-spam and Discord-invite filters are off by
+default, exempt staff with Manage Messages, and notify a member privately at
+most once per minute when a message is removed.
 
 Chat and voice XP are separate. Eligible chat messages earn XP at most once
 per minute. Voice XP is counted once per minute only when at least two
