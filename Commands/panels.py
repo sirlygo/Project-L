@@ -444,45 +444,89 @@ class PanelInstallReport:
     created: list[str] = field(default_factory=list)
     existing: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
+    moved: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
 
 
 async def ensure_automatic_panels(client) -> PanelInstallReport:
-    """Install missing standard panels in the setup-managed panels channel."""
+    """Keep Verify in welcome and self-role controls in the panels channel."""
     report = PanelInstallReport()
     config = load_config()
     guild = client.get_guild(config["guildId"])
-    channel_id = int(config.get("managedResources", {}).get("panelsChannel", 0) or 0)
-    if guild is None or not channel_id:
-        report.failed.append("panels channel is not configured")
+    panels_id = int(config.get("managedResources", {}).get("panelsChannel", 0) or 0)
+    welcome_id = int(config.get("welcome", 0) or 0)
+    if guild is None or not panels_id:
+        report.failed.append("server or panels channel is not configured")
         return report
-    channel = guild.get_channel(channel_id) or client.get_channel(channel_id)
-    if channel is None:
+    panels_channel = guild.get_channel(panels_id) or client.get_channel(panels_id)
+    if panels_channel is None:
         try:
-            channel = await client.fetch_channel(channel_id)
+            panels_channel = await client.fetch_channel(panels_id)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             report.failed.append(f"panels channel is unavailable: {exc}")
             return report
 
-    existing_messages = {}
-    try:
-        async for message in channel.history(limit=100, oldest_first=False):
+    async def find_existing(channel):
+        found = {}
+        verification_messages = []
+        async for message in channel.history(limit=200, oldest_first=False):
             kind = panel_kind_for_message(message, client.user.id)
-            if kind and kind not in existing_messages:
-                existing_messages[kind] = message
+            if kind == "verification":
+                verification_messages.append(message)
+            if kind and kind not in found:
+                found[kind] = message
+        return found, verification_messages
+
+    try:
+        panel_messages, misplaced_verification = await find_existing(panels_channel)
     except (discord.Forbidden, discord.HTTPException) as exc:
         report.failed.append(f"could not inspect existing panels: {exc}")
         return report
+
+    welcome_channel = None
+    if welcome_id and welcome_id != panels_id:
+        welcome_channel = guild.get_channel(welcome_id) or client.get_channel(welcome_id)
+        if welcome_channel is None:
+            try:
+                welcome_channel = await client.fetch_channel(welcome_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                report.failed.append(f"welcome channel is unavailable: {exc}")
+        if welcome_channel is not None:
+            try:
+                welcome_messages, _ = await find_existing(welcome_channel)
+                existing_verify = welcome_messages.get("verification")
+                if existing_verify is None:
+                    await send_managed_panel("verification", welcome_channel, guild, client.colour)
+                    report.created.append("verification")
+                elif await repair_managed_panel_art(existing_verify, "verification"):
+                    report.updated.append("verification")
+                else:
+                    report.existing.append("verification")
+
+                for misplaced_verify in misplaced_verification:
+                    await misplaced_verify.delete()
+                if misplaced_verification:
+                    report.moved.append("verification")
+            except (
+                OSError,
+                discord.Forbidden,
+                discord.NotFound,
+                discord.HTTPException,
+            ) as exc:
+                print(f"[!] Could not place verification panel in welcome: {exc}")
+                report.failed.append("verification in welcome channel")
+    else:
+        report.failed.append("welcome channel is not configured separately from panels")
 
     desired = []
     if managed_role_ids(config):
         desired.append("self_roles_header")
         desired.extend(f"self_roles:{group}" for group in ROLE_GROUPS)
-    desired.extend(["verification", "private_voice", "tickets"])
+    desired.extend(["private_voice", "tickets"])
     if reaction_role_options(guild, load_role_ids()):
         desired.append("reaction_roles")
     for kind in desired:
-        existing_message = existing_messages.get(kind)
+        existing_message = panel_messages.get(kind)
         if existing_message is not None:
             try:
                 if await repair_managed_panel_art(existing_message, kind):
@@ -499,7 +543,7 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
                 report.failed.append(kind)
             continue
         try:
-            await send_managed_panel(kind, channel, guild, client.colour)
+            await send_managed_panel(kind, panels_channel, guild, client.colour)
             report.created.append(kind)
         except (
             ValueError,

@@ -212,9 +212,11 @@ restart count and delay can be changed with `-MaxRestarts` and
 
 On first startup, Project L creates the built-in self-role choices and posts a
 **Self Roles** banner first, followed by separate Color, Pronoun, Platform, Age,
-and Event Pings button panels. Each group has its own animated GIF. Verification,
-private-voice, ticket, and configured reaction-role panels follow in the automatic `project-l-panels`
-channel. Existing panels are detected by their stable component IDs, so
+and Event Pings button panels. Each group has its own animated GIF. The Verify
+button goes in `#welcome`; private-voice, ticket, and configured reaction-role
+panels go in the automatic `project-l-panels` channel. A previously misplaced
+bot-authored Verify panel is removed from `project-l-panels` only after a new
+one is posted in `#welcome`. Existing panels are detected by their stable component IDs, so
 restarts do not post duplicates. Existing text-only managed panels are upgraded
 in place with their local art while preserving their buttons. Verification,
 private-voice, and ticket panels upload their matching banner from `Data/art/`

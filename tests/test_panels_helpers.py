@@ -340,11 +340,12 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
                 self.messages.append(message)
                 return message
 
-        channel = FakeChannel()
+        panel_channel = FakeChannel()
+        welcome_channel = FakeChannel()
         guild = SimpleNamespace(
             name="Test Server",
             me=None,
-            get_channel=lambda channel_id: channel if channel_id == 99 else None,
+            get_channel=lambda channel_id: {99: panel_channel, 100: welcome_channel}.get(channel_id),
         )
         client = SimpleNamespace(
             user=bot_user,
@@ -354,6 +355,7 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         )
         config = {
             "guildId": 7,
+            "welcome": 100,
             "managedResources": {"panelsChannel": 99},
         }
         with (
@@ -370,7 +372,96 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
             second.existing,
             ["verification", "private_voice", "tickets"],
         )
-        self.assertEqual(len(channel.messages), 3)
+        self.assertEqual(len(panel_channel.messages), 2)
+        self.assertEqual(len(welcome_channel.messages), 1)
+        self.assertEqual(
+            panel_kind_for_message(welcome_channel.messages[0], bot_user.id),
+            "verification",
+        )
+
+    async def test_misplaced_verify_is_removed_only_after_welcome_copy(self):
+        bot_user = SimpleNamespace(id=42)
+        old_verify = SimpleNamespace(
+            author=bot_user,
+            components=[SimpleNamespace(children=[SimpleNamespace(custom_id="verify")])],
+            delete=AsyncMock(),
+        )
+
+        class Channel:
+            def __init__(self, messages):
+                self.messages = messages
+
+            async def history(self, **_kwargs):
+                for message in self.messages:
+                    yield message
+
+        panel_channel = Channel([old_verify])
+        welcome_channel = Channel([])
+        guild = SimpleNamespace(
+            me=None,
+            get_channel=lambda channel_id: {99: panel_channel, 100: welcome_channel}.get(channel_id),
+        )
+        client = SimpleNamespace(
+            user=bot_user,
+            colour=discord.Colour.green(),
+            get_guild=lambda _id: guild,
+            get_channel=lambda _id: None,
+        )
+        config = {"guildId": 7, "welcome": 100, "managedResources": {"panelsChannel": 99}}
+        with (
+            patch("Commands.panels.load_config", return_value=config),
+            patch("Commands.panels.load_role_ids", return_value=[]),
+            patch("Commands.panels.send_managed_panel", new_callable=AsyncMock) as send,
+        ):
+            report = await ensure_automatic_panels(client)
+
+        self.assertEqual(send.await_args_list[0].args[:2], ("verification", welcome_channel))
+        old_verify.delete.assert_awaited_once()
+        self.assertEqual(report.moved, ["verification"])
+
+    async def test_misplaced_verify_is_kept_if_welcome_post_fails(self):
+        bot_user = SimpleNamespace(id=42)
+        old_verify = SimpleNamespace(
+            author=bot_user,
+            components=[SimpleNamespace(children=[SimpleNamespace(custom_id="verify")])],
+            delete=AsyncMock(),
+        )
+
+        class Channel:
+            def __init__(self, messages):
+                self.messages = messages
+
+            async def history(self, **_kwargs):
+                for message in self.messages:
+                    yield message
+
+        panel_channel = Channel([old_verify])
+        welcome_channel = Channel([])
+        guild = SimpleNamespace(
+            me=None,
+            get_channel=lambda channel_id: {99: panel_channel, 100: welcome_channel}.get(channel_id),
+        )
+        client = SimpleNamespace(
+            user=bot_user,
+            colour=discord.Colour.green(),
+            get_guild=lambda _id: guild,
+            get_channel=lambda _id: None,
+        )
+        config = {"guildId": 7, "welcome": 100, "managedResources": {"panelsChannel": 99}}
+
+        async def send(kind, *_args):
+            if kind == "verification":
+                raise OSError("cannot send")
+
+        with (
+            patch("Commands.panels.load_config", return_value=config),
+            patch("Commands.panels.load_role_ids", return_value=[]),
+            patch("Commands.panels.send_managed_panel", side_effect=send),
+        ):
+            report = await ensure_automatic_panels(client)
+
+        old_verify.delete.assert_not_awaited()
+        self.assertIn("verification in welcome channel", report.failed)
 
 
 if __name__ == "__main__":

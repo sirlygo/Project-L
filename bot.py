@@ -350,6 +350,8 @@ async def on_ready():
             print("[OK] Installed panels: " + ", ".join(panel_report.created))
         if panel_report.updated:
             print("[OK] Updated panel art: " + ", ".join(panel_report.updated))
+        if panel_report.moved:
+            print("[OK] Moved panels to their proper channels: " + ", ".join(panel_report.moved))
         if panel_report.failed:
             print("[!] Panel setup needs attention: " + "; ".join(panel_report.failed))
         client.panels_reconciled = not panel_report.failed
