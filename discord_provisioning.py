@@ -899,6 +899,8 @@ def configuration_without_managed_channels(
             "statsCategory",
             "alertsChannel",
             "panelsChannel",
+            "privateVoicePanelChannel",
+            "helpChannel",
         ):
             clean[MANAGED_RESOURCES_KEY][child] = 0
     for friend in clean.get("friendTwitch", []):
@@ -956,6 +958,29 @@ def provision_guild_resources(
         if not isinstance(group_roles, dict):
             group_roles = {}
             self_roles[group] = group_roles
+        if group == "pronouns" and not group_roles.get("Ask"):
+            previous_id = _permission_value(group_roles.get("Any Pronouns"))
+            previous = next(
+                (role for role in snapshot.roles if _permission_value(role.get("id")) == previous_id),
+                None,
+            )
+            if (
+                previous is not None
+                and previous.get("name") == role_name("pronouns", "Any Pronouns")
+                and not previous.get("managed", False)
+                and role_hierarchy_key(previous) < _bot_top_role_key(snapshot)
+            ):
+                renamed = request_json(
+                    "PATCH",
+                    f"guilds/{snapshot.guild_id}/roles/{previous_id}",
+                    token,
+                    timeout,
+                    {"name": role_name("pronouns", "Ask")},
+                )
+                previous.update(renamed if isinstance(renamed, Mapping) else {"name": role_name("pronouns", "Ask")})
+                group_roles["Ask"] = previous_id
+                group_roles.pop("Any Pronouns", None)
+                report.updated.append("pronouns Ask role")
         for choice in choices:
             role = _ensure_role(
                 snapshot=snapshot,
@@ -1038,6 +1063,38 @@ def provision_guild_resources(
         overwrites=public_overwrites,
     )
     managed["panelsChannel"] = _channel_id(panels)
+
+    private_voice_panel = _ensure_resource(
+        snapshot=snapshot,
+        request_json=request_json,
+        token=token,
+        timeout=timeout,
+        report=report,
+        key="private-voice-panel",
+        label="private voice creation channel",
+        name="create-private-voice-channel",
+        channel_type=TEXT_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("privateVoicePanelChannel"))],
+        parent_id=_channel_id(community),
+        overwrites=public_overwrites,
+    )
+    managed["privateVoicePanelChannel"] = _channel_id(private_voice_panel)
+
+    help_panel = _ensure_resource(
+        snapshot=snapshot,
+        request_json=request_json,
+        token=token,
+        timeout=timeout,
+        report=report,
+        key="help-panel",
+        label="help channel",
+        name="help",
+        channel_type=TEXT_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("helpChannel"))],
+        parent_id=_channel_id(community),
+        overwrites=public_overwrites,
+    )
+    managed["helpChannel"] = _channel_id(help_panel)
 
     log_channels = _mapping(updated_config, "logChannelIds")
     logs = _ensure_resource(

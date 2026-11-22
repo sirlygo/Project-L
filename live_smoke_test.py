@@ -19,6 +19,7 @@ from discord_validation import (
     _get_json,
     validate_live_discord_report,
 )
+from self_roles import ROLE_GROUPS
 
 EXPECTED_PANELS = {
     "private voice": frozenset({"voicechannel"}),
@@ -54,9 +55,10 @@ def missing_panel_names(
     *,
     bot_user_id: int,
     reaction_roles_configured: bool,
+    include_dedicated: bool = True,
 ) -> list[str]:
     """Return managed panel types not found in raw Discord messages."""
-    expected = dict(EXPECTED_PANELS)
+    expected = dict(EXPECTED_PANELS) if include_dedicated else {}
     if reaction_roles_configured:
         expected["reaction roles"] = frozenset({"roles"})
     authored_components = [
@@ -92,6 +94,8 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "staff category": managed.get("staffCategory"),
         "server statistics category": managed.get("statsCategory"),
         "panels channel": managed.get("panelsChannel"),
+        "private voice creation channel": managed.get("privateVoicePanelChannel"),
+        "help channel": managed.get("helpChannel"),
     }
     for key, value in (config.get("tickets") or {}).items():
         required[f"ticket resource {key}"] = value
@@ -153,9 +157,34 @@ def run_live_smoke_test(*, timeout: float = 15) -> tuple[list[str], list[str]]:
         messages,
         bot_user_id=bot_user_id,
         reaction_roles_configured=bool(role_ids),
+        include_dedicated=False,
     )
     errors.extend(f"{name} panel is missing" for name in missing)
+    for kind, channel_id in (
+        ("private voice", managed_id(config, "privateVoicePanelChannel")),
+        ("tickets", managed_id(config, "helpChannel")),
+    ):
+        target_messages = _get_json(
+            f"channels/{channel_id}/messages?limit=100", token, timeout
+        )
+        if not isinstance(target_messages, list) or not has_bot_panel(
+            target_messages,
+            bot_user_id=bot_user_id,
+            required=EXPECTED_PANELS[kind],
+        ):
+            errors.append(f"{kind} panel is missing from its dedicated channel")
+        if has_bot_panel(messages, bot_user_id=bot_user_id, required=EXPECTED_PANELS[kind]):
+            errors.append(f"{kind} panel is still in the self-roles/panels channel")
+    if config.get("managedResources", {}).get("selfRoles"):
+        for group, choices in ROLE_GROUPS.items():
+            required = frozenset(f"selfrole:{group}:{index}" for index in range(len(choices)))
+            if not has_bot_panel(messages, bot_user_id=bot_user_id, required=required):
+                errors.append(f"{group} self-role buttons are incomplete")
     return errors, report.warnings
+
+
+def managed_id(config: Mapping[str, Any], key: str) -> int:
+    return int(config.get("managedResources", {}).get(key, 0) or 0)
 
 
 def main(argv: list[str] | None = None) -> int:

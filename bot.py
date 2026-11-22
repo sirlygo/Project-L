@@ -54,6 +54,10 @@ twchannel = config["twitchChannelName"]
 serverStats = config["serverStatChannelIds"]
 clientid = config["twClientId"]
 streamRole = config["streamRole"]
+streamPingRole = int(
+    config.get("managedResources", {}).get("selfRoles", {}).get("pings", {}).get("Now Streaming Pings", 0)
+    or 0
+)
 clientsecret = config["twClientsecret"]
 friend = config["friendTwitch"]
 
@@ -349,7 +353,7 @@ async def on_ready():
         if panel_report.created:
             print("[OK] Installed panels: " + ", ".join(panel_report.created))
         if panel_report.updated:
-            print("[OK] Updated panel art: " + ", ".join(panel_report.updated))
+            print("[OK] Updated panels: " + ", ".join(panel_report.updated))
         if panel_report.moved:
             print("[OK] Moved panels to their proper channels: " + ", ".join(panel_report.moved))
         if panel_report.failed:
@@ -612,7 +616,7 @@ async def twitchloop():
             continue
         game_name = stream_data.get("game_name")
         if is_primary:
-            role_ping = f"<@&{streamRole}> " if streamRole else ""
+            role_ping = f"<@&{streamPingRole}> " if streamPingRole else ""
             message = f"**{role_ping}I'm live!**\nhttps://www.twitch.tv/{twchannel}"
         else:
             message = (
@@ -623,7 +627,7 @@ async def twitchloop():
             message += f"\nPlaying: {game_name}"
         try:
             allowed_roles = (
-                [discord.Object(id=streamRole)] if is_primary and streamRole else []
+                [discord.Object(id=streamPingRole)] if is_primary and streamPingRole else []
             )
             await channel.send(
                 message,

@@ -15,6 +15,11 @@ $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 $env:PYTHONUTF8 = "1"
 $env:PYTHONUNBUFFERED = "1"
+# Launchers such as PyCharm can retain an older PATH after setup installs
+# FFmpeg. Refresh it for this bot process without changing system settings.
+$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$env:Path = (@($machinePath, $userPath, $env:Path) | Where-Object { $_ }) -join ";"
 
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $configPath = Join-Path $PSScriptRoot "Data\config.json"

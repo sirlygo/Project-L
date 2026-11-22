@@ -1,11 +1,11 @@
 """Safe built-in self-service role catalog."""
 
 ROLE_GROUPS = {
-    "colors": ("Red", "Orange", "Yellow", "Green", "Blue", "Purple"),
-    "pronouns": ("He/Him", "She/Her", "They/Them", "Any Pronouns"),
-    "platform": ("PC", "PlayStation", "Xbox", "Nintendo Switch"),
+    "colors": ("Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Cyan", "Black", "White"),
+    "pronouns": ("He/Him", "She/Her", "They/Them", "Ask"),
+    "platform": ("PC", "PlayStation", "Xbox", "Nintendo Switch", "Nintendo Switch 2", "Other Platform"),
     "age": ("Under 18", "18 or Older"),
-    "pings": ("Movie Night Pings", "Game Night Pings"),
+    "pings": ("Movie Night Pings", "Game Night Pings", "Now Streaming Pings"),
 }
 
 

@@ -1,11 +1,12 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from Commands.music import (
     cleanup_source,
     is_supported_youtube_url,
     playable_entry,
+    probe_audio_stream,
     respond,
 )
 
@@ -59,6 +60,19 @@ class CleanupTests(unittest.TestCase):
 
     def test_cleanup_accepts_an_object_without_cleanup(self):
         cleanup_source(object())
+
+
+class StreamProbeTests(unittest.TestCase):
+    def test_accepts_decodable_stream(self):
+        with patch("Commands.music.subprocess.run", return_value=SimpleNamespace(returncode=0, stderr="")) as run:
+            probe_audio_stream("ffmpeg", "https://media.example/audio")
+        self.assertEqual(run.call_args.args[0][0], "ffmpeg")
+
+    def test_explains_forbidden_stream_without_leaking_url(self):
+        with patch("Commands.music.subprocess.run", return_value=SimpleNamespace(returncode=1, stderr="Server returned 403 Forbidden")):
+            with self.assertRaisesRegex(ValueError, "HTTP 403") as error:
+                probe_audio_stream("ffmpeg", "https://media.example/audio?secret=abc")
+        self.assertNotIn("secret=abc", str(error.exception))
 
 
 class InteractionResponseTests(unittest.IsolatedAsyncioTestCase):

@@ -4,6 +4,7 @@ from discord.ext import commands
 import yt_dlp
 import asyncio
 import shutil
+import subprocess
 from urllib.parse import urlparse
 from logFunction import print_interaction_info
 
@@ -60,6 +61,23 @@ def cleanup_source(source):
         cleanup()
 
 
+def probe_audio_stream(ffmpeg_executable, stream_url):
+    """Catch expired or blocked YouTube streams before claiming playback started."""
+    result = subprocess.run(
+        [ffmpeg_executable, "-nostdin", "-hide_banner", "-loglevel", "error",
+         "-t", "1", "-i", stream_url, "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode:
+        error = result.stderr.casefold()
+        if "403" in error or "forbidden" in error:
+            raise ValueError("YouTube refused the audio stream (HTTP 403). Try again shortly.")
+        raise ValueError("FFmpeg could not read this audio stream. Try another YouTube link.")
+
+
 
 class Start(commands.Cog):
     def __init__(self, client):
@@ -78,6 +96,8 @@ class Start(commands.Cog):
             return
         voice = discord.utils.get(self.client.voice_clients, guild=interaction.guild)
         try:
+            song_info = await asyncio.to_thread(extract_playable_info, url)
+            await asyncio.to_thread(probe_audio_stream, ffmpeg_executable, song_info["url"])
             if voice and voice.is_connected():
                 await voice.move_to(channel)
             else:
@@ -157,7 +177,6 @@ class Start(commands.Cog):
                 )
                 return
 
-            song_info = await asyncio.to_thread(extract_playable_info, url)
             if voice.is_playing():
                 voice.stop()
             source = discord.FFmpegPCMAudio(
@@ -181,6 +200,7 @@ class Start(commands.Cog):
         except (
             ValueError,
             OSError,
+            subprocess.TimeoutExpired,
             discord.ClientException,
             discord.Forbidden,
             discord.HTTPException,
@@ -188,7 +208,7 @@ class Start(commands.Cog):
         ) as exc:
             print(f"[!] Music playback failed: {exc}")
             await interaction.followup.send(
-                "Could not play that URL. Check the link and try again.",
+                str(exc) if isinstance(exc, ValueError) else "Could not play that URL. Check the link and try again.",
                 ephemeral=True,
             )
             return

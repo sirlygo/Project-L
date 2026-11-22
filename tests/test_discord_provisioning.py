@@ -179,6 +179,21 @@ class DiscordProvisioningTests(unittest.TestCase):
                 self.assertEqual(role["name"], role_name(group, choice))
                 self.assertEqual(int(role["permissions"]), 0)
         self.assertTrue(config["managedResources"]["panelsChannel"])
+        self.assertNotEqual(
+            config["managedResources"]["privateVoicePanelChannel"],
+            config["managedResources"]["panelsChannel"],
+        )
+        self.assertNotEqual(
+            config["managedResources"]["helpChannel"],
+            config["managedResources"]["panelsChannel"],
+        )
+        for key, name in (
+            ("privateVoicePanelChannel", "create-private-voice-channel"),
+            ("helpChannel", "help"),
+        ):
+            channel_id = config["managedResources"][key]
+            channel = next(item for item in self.api.channels if int(item["id"]) == channel_id)
+            self.assertEqual(channel["name"], name)
         self.assertEqual(config["welcome_images"], 0)
         self.assertTrue(config["transcripts"])
         self.assertTrue(config["modmail"])
@@ -294,6 +309,22 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertEqual(second_report.created, [])
         self.assertEqual(second_report.updated, [])
         self.assertEqual(second_config, config)
+
+    def test_existing_any_pronouns_role_is_renamed_without_losing_id(self):
+        self.api.roles.append({
+            "id": "333", "name": "Project L Any Pronouns", "permissions": "0",
+            "position": 1, "managed": False, "mentionable": False,
+        })
+        self.config["managedResources"]["selfRoles"] = {
+            "pronouns": {"Any Pronouns": 333}
+        }
+        config, _report = provision_guild_resources(
+            self.config, token="token", request_json=self.api
+        )
+        pronouns = config["managedResources"]["selfRoles"]["pronouns"]
+        self.assertEqual(pronouns["Ask"], 333)
+        self.assertNotIn("Any Pronouns", pronouns)
+        self.assertEqual(next(role for role in self.api.roles if role["id"] == "333")["name"], "Project L Ask")
 
     def test_new_roles_at_same_position_as_bot_are_reused(self):
         # Discord sorts equal-position roles by ID; newer roles are lower.

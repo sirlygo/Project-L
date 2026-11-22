@@ -179,7 +179,7 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         config = {"managedResources": {"selfRoles": roles}}
         guild = SimpleNamespace(get_role=lambda role_id: object() if role_id else None)
         view = BuiltinSelfRoleView(config, guild, "colors")
-        self.assertEqual(len(view.children), 6)
+        self.assertEqual(len(view.children), len(ROLE_GROUPS["colors"]))
         self.assertEqual(view.children[0].custom_id, "selfrole:colors:0")
         sent = []
 
@@ -193,7 +193,7 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
                     f"self_roles:{group}", Channel(), guild, discord.Colour.green()
                 )
         self.assertEqual(len(sent), 5)
-        self.assertEqual(len(sent[-1]["view"].children), 2)
+        self.assertEqual(len(sent[-1]["view"].children), len(ROLE_GROUPS["pings"]))
         for group, message in zip(ROLE_GROUPS, sent):
             filename = message["file"].filename
             self.assertRegex(filename, rf"^project_l_self_roles_{group}_[0-9a-f]{{10}}\.gif$")
@@ -469,6 +469,56 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(send.await_args_list[0].args[:2], ("verification", welcome_channel))
         old_verify.delete.assert_awaited_once()
         self.assertEqual(report.moved, ["verification"])
+
+    async def test_voice_and_ticket_panels_move_to_dedicated_channels(self):
+        bot_user = SimpleNamespace(id=42)
+
+        def old_panel(custom_id):
+            return SimpleNamespace(
+                author=bot_user,
+                components=[SimpleNamespace(children=[SimpleNamespace(custom_id=custom_id)])],
+                delete=AsyncMock(),
+            )
+
+        old_voice = old_panel("voicechannel")
+        old_ticket = SimpleNamespace(
+            author=bot_user,
+            components=[SimpleNamespace(children=[
+                SimpleNamespace(custom_id=custom_id)
+                for custom_id in ("ticket_help", "ticket_suggestions", "ticket_report")
+            ])],
+            delete=AsyncMock(),
+        )
+
+        class Channel:
+            def __init__(self, messages=()):
+                self.messages = messages
+
+            async def history(self, **_kwargs):
+                for message in self.messages:
+                    yield message
+
+        channels = {99: Channel([old_voice, old_ticket]), 100: Channel(), 101: Channel(), 102: Channel()}
+        guild = SimpleNamespace(get_channel=channels.get)
+        client = SimpleNamespace(
+            user=bot_user, colour=discord.Colour.green(),
+            get_guild=lambda _id: guild, get_channel=lambda _id: None,
+        )
+        config = {"guildId": 7, "welcome": 100, "managedResources": {
+            "panelsChannel": 99, "privateVoicePanelChannel": 101, "helpChannel": 102,
+        }}
+        with (
+            patch("Commands.panels.load_config", return_value=config),
+            patch("Commands.panels.load_role_ids", return_value=[]),
+            patch("Commands.panels.send_managed_panel", new_callable=AsyncMock) as send,
+        ):
+            report = await ensure_automatic_panels(client)
+
+        self.assertIn(("private_voice", channels[101]), [call.args[:2] for call in send.await_args_list])
+        self.assertIn(("tickets", channels[102]), [call.args[:2] for call in send.await_args_list])
+        old_voice.delete.assert_awaited_once()
+        old_ticket.delete.assert_awaited_once()
+        self.assertEqual(report.moved, ["private_voice", "tickets"])
 
     async def test_misplaced_verify_is_kept_if_welcome_post_fails(self):
         bot_user = SimpleNamespace(id=42)

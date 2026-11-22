@@ -39,7 +39,7 @@ SELF_ROLE_COPY = {
     "pronouns": ("Pronoun Roles", "Choose the pronouns you use. Selecting another option replaces your previous one."),
     "platform": ("Gaming Platform Roles", "Choose the platform you play on. Selecting another platform replaces your previous one."),
     "age": ("Age Roles", "Choose Under 18 or 18 or Older. Selecting one replaces the other."),
-    "pings": ("Event Pings", "Opt in to Movie Night Pings, Game Night Pings, or both. Select again to opt out."),
+    "pings": ("Event Pings", "Opt in to Movie Night, Game Night, or Now Streaming notifications. Select again to opt out."),
 }
 SELF_ROLE_PANEL_TITLES = frozenset(
     {
@@ -542,14 +542,21 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
     if managed_role_ids(config):
         desired.append("self_roles_header")
         desired.extend(f"self_roles:{group}" for group in ROLE_GROUPS)
-    desired.extend(["private_voice", "tickets"])
     if reaction_role_options(guild, load_role_ids()):
         desired.append("reaction_roles")
     for kind in desired:
         existing_message = panel_messages.get(kind)
         if existing_message is not None:
             try:
-                if await repair_managed_panel_art(existing_message, kind):
+                changed = await repair_managed_panel_art(existing_message, kind)
+                if kind.startswith("self_roles:"):
+                    group = kind.split(":", 1)[1]
+                    view = BuiltinSelfRoleView(config, guild, group)
+                    expected = {item.custom_id for item in view.children}
+                    if len(view.children) == len(ROLE_GROUPS[group]) and _component_custom_ids(existing_message) != expected:
+                        await existing_message.edit(view=view)
+                        changed = True
+                if changed:
                     report.updated.append(kind)
                 else:
                     report.existing.append(kind)
@@ -573,6 +580,35 @@ async def ensure_automatic_panels(client) -> PanelInstallReport:
             discord.HTTPException,
         ) as exc:
             print(f"[!] Could not install {kind} panel: {exc}")
+            report.failed.append(kind)
+
+    dedicated_channels = {
+        "private_voice": int(config.get("managedResources", {}).get("privateVoicePanelChannel", 0) or panels_id),
+        "tickets": int(config.get("managedResources", {}).get("helpChannel", 0) or panels_id),
+    }
+    for kind, channel_id in dedicated_channels.items():
+        target = panels_channel if channel_id == panels_id else guild.get_channel(channel_id) or client.get_channel(channel_id)
+        try:
+            if target is None:
+                target = await client.fetch_channel(channel_id)
+            old = panel_messages.get(kind) if target is not panels_channel else None
+            if target is panels_channel:
+                existing = panel_messages.get(kind)
+            else:
+                target_messages, _ = await find_existing(target)
+                existing = target_messages.get(kind)
+            if existing is None:
+                await send_managed_panel(kind, target, guild, client.colour)
+                report.created.append(kind)
+            elif await repair_managed_panel_art(existing, kind):
+                report.updated.append(kind)
+            else:
+                report.existing.append(kind)
+            if old is not None:
+                await old.delete()
+                report.moved.append(kind)
+        except (OSError, discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            print(f"[!] Could not place {kind} panel: {exc}")
             report.failed.append(kind)
     return report
 

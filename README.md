@@ -37,7 +37,8 @@ wizard.
    resolves the Bot page directly from the entered token. Authorize the invite,
    return to setup, choose **Check Readiness**, then **Save & Create**.
 5. Project L creates or reuses its verified and streamer roles, secured
-   categories and channels, statistics counters, and setup-panel channel. It
+   categories and channels, statistics counters, a self-roles channel, a
+   `create-private-voice-channel` panel channel, and a `help` ticket channel. It
    remembers all generated IDs automatically; no channel or category IDs are
    requested.
 6. Start the bot:
@@ -94,10 +95,10 @@ Important settings:
 - `client_id`: discovered from the bot token during setup.
 - `welcome`: automatic welcome output channel. Generated welcome images are
   attached directly to the welcome message.
-- `verified` and `streamRole`: safe zero-permission roles created automatically
+- `verified` and `streamRole`: safe roles created automatically
   under the bot's highest role. The verified role is granted by the Verify
-  button; the streamer role permits private-voice creation and receives the
-  primary Twitch alert.
+  button; the streamer role permits private-voice creation. Members can opt in
+  to the separate Now Streaming Pings self-role for primary Twitch alerts.
 - `invitechannel`, `modmail`, `transcripts`, `voicecategory`, `tickets`,
   `serverStatChannelIds`, and `logChannelIds` are filled automatically by the
   wizard. Audit events share one private staff log channel.
@@ -162,8 +163,9 @@ node --version
 
 FFmpeg must be on `PATH` for `/play`. Node is used by current `yt-dlp` releases
 for YouTube extraction. Setup attempts to install both; if the current
-PowerShell process cannot see a newly installed command, reopen PowerShell and
-run setup again.
+PowerShell process cannot see a newly installed command, restart the bot.
+The `/play` command checks that FFmpeg can read the selected stream before it
+announces playback; YouTube may still deny some videos or streams.
 
 If Discord rejects the connection for privileged intents, enable all three
 listed intents in the Developer Portal and restart. If a managed channel is

@@ -66,6 +66,8 @@ class SetupConfigTests(unittest.TestCase):
             "staffCategory",
             "statsCategory",
             "panelsChannel",
+            "privateVoicePanelChannel",
+            "helpChannel",
         ):
             config["managedResources"][key] = generated_id()
         config["managedResources"]["provisioningVersion"] = AUTOMATIC_SETUP_VERSION

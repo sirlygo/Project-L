@@ -447,6 +447,8 @@ def configuration_status(
                     "staffCategory",
                     "statsCategory",
                     "panelsChannel",
+                    "privateVoicePanelChannel",
+                    "helpChannel",
                 )
             )
         else:
