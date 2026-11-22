@@ -9,6 +9,7 @@ from discord.ext import commands
 from config_loader import load_config, load_role_ids
 from self_roles import ROLE_GROUPS, managed_role_ids
 from Commands.public_voice import PublicVoiceNameModal
+from Commands.private_voice import PrivateVoiceNameModal
 
 TICKET_TOPIC_PATTERN = re.compile(r"^ticket-owner:(\d+)$")
 
@@ -199,61 +200,7 @@ class OnInteractionEvent(commands.Cog):
             return
 
         if interaction.data['custom_id'] == "voicechannel":
-            await interaction.response.defer(thinking=False, ephemeral=True)
-            member = interaction.guild.get_member(interaction.user.id)
-            role = interaction.guild.get_role(streammerrole)
-            if role not in member.roles:
-                await interaction.followup.send(f"You don't have the streamer role!", ephemeral=True)
-                return
-
-            category = interaction.guild.get_channel(voicecategory)
-            if not isinstance(category, discord.CategoryChannel):
-                await interaction.followup.send(
-                    "The configured private-voice destination is not a category. "
-                    "Ask an administrator to update it in the setup wizard.",
-                    ephemeral=True,
-                )
-                return
-
-
-            result = self.connect()
-            if result is None:
-                return
-
-            userid = interaction.user.id
-
-            conn, curs = result
-            query = f"""SELECT voice FROM users WHERE userid={userid}"""
-            curs.execute(query)
-            records = curs.fetchall()
-            if len(records) > 0:
-                channelid = records[0][0]
-                chan = self.client.get_channel(channelid)
-                if chan is not None:
-                    conn.close()
-                    await interaction.followup.send(f"You already have a private voice channel: {chan.mention}", ephemeral=True)
-                    return
-
-            channel = await interaction.guild.create_voice_channel(name=interaction.user.name, category=category)
-            await channel.set_permissions(
-                member,
-                view_channel=True,
-                manage_channels=True,
-                connect=True,
-                speak=True,
-            )
-            curs.execute(
-                "INSERT OR IGNORE INTO users(userid, balance, invited, left) "
-                "VALUES(?, 0, 0, 0)",
-                (userid,),
-            )
-            curs.execute(
-                "UPDATE users SET voice = ? WHERE userid = ?",
-                (channel.id, userid),
-            )
-            conn.commit()
-            conn.close()
-            await interaction.followup.send(f"Your private voice channel: {channel.mention}", ephemeral=True)
+            await interaction.response.send_modal(PrivateVoiceNameModal())
             return
 
 

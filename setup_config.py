@@ -21,6 +21,8 @@ from config_loader import (
     missing_required_settings,
 )
 from youtube_notifications import YouTubeSourceError, normalize_youtube_source
+from branding import ART_KEYS
+from config_loader import BASE_DIR
 
 EXAMPLE_CONFIG_PATH = CONFIG_PATH.with_name("config.example.json")
 
@@ -221,6 +223,10 @@ def flatten_config(config: Mapping[str, Any], role_ids: list[int]) -> dict[str, 
         friends if isinstance(friends, list) else []
     )
     values["roleIds"] = format_role_ids(role_ids)
+    branding = config.get("branding") or {}
+    values["rulesText"] = branding.get("rulesText", "")
+    for key in ART_KEYS:
+        values[f"art.{key}"] = (branding.get("art") or {}).get(key, "")
     return values
 
 
@@ -288,6 +294,28 @@ def build_configuration(
         "antiSpamEnabled": bool(values.get("antiSpamEnabled", False)),
         "blockInviteLinks": bool(values.get("blockInviteLinks", False)),
     }
+
+    branding = config.setdefault("branding", {})
+    if "rulesText" in values:
+        rules_text = str(values["rulesText"]).strip()
+        if len(rules_text) > 4096:
+            errors.append("Server rules must be at most 4096 characters.")
+        branding["rulesText"] = rules_text
+    art = branding.setdefault("art", {})
+    for key in ART_KEYS:
+        field = f"art.{key}"
+        if field not in values:
+            continue
+        selected = str(values[field]).strip()
+        if selected:
+            path = Path(selected).expanduser()
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            if path.suffix.casefold() not in {".png", ".jpg", ".jpeg", ".gif"} or not path.is_file():
+                errors.append(f"{key} art must be an existing PNG, JPG, or GIF file.")
+            elif path.stat().st_size > 8 * 1024 * 1024:
+                errors.append(f"{key} art must be under 8 MiB for Discord uploads.")
+        art[key] = selected
 
     try:
         config["friendTwitch"] = parse_twitch_friends_text(
@@ -456,6 +484,8 @@ def configuration_status(
                     "panelsChannel",
                     "privateVoicePanelChannel",
                     "helpChannel",
+                    "helpCategory",
+                    "selfRolesCategory",
                     "welcomeMessagesChannel",
                     "rulesChannel",
                     "announcementsChannel",

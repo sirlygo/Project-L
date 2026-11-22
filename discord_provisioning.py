@@ -932,6 +932,8 @@ def configuration_without_managed_channels(
             "voiceHubCategory",
             "publicVoiceCategory",
             "publicVoicePanelChannel",
+            "helpCategory",
+            "selfRolesCategory",
         ):
             clean[MANAGED_RESOURCES_KEY][child] = 0
     for friend in clean.get("friendTwitch", []):
@@ -1138,8 +1140,8 @@ def provision_guild_resources(
         ("announcementsChannel", "📢〢ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs", "announcements", public_overwrites, announcements_category),
         ("boostsChannel", "🚀〢sᴇʀᴠᴇʀ-ʙᴏᴏsᴛs", "server boosts", public_overwrites, announcements_category),
         ("giveawaysChannel", "🎁〢ɢɪᴠᴇᴀᴡᴀʏs", "giveaways", public_overwrites, announcements_category),
-        ("xpChannel", "✨〢xᴘ-ᴘʀᴏɢʀᴇss", "XP progress", public_overwrites, community),
         ("generalChatChannel", "💬〢ɢᴇɴᴇʀᴀʟ-ᴄʜᴀᴛ", "general chat", None, community),
+        ("xpChannel", "✨〢xᴘ-ᴘʀᴏɢʀᴇss", "XP progress", public_overwrites, community),
     )
     for config_key, name, label, overwrites, parent in community_channels:
         channel = _ensure_resource(
@@ -1198,6 +1200,24 @@ def provision_guild_resources(
     )
     managed["publicVoiceCategory"] = _channel_id(public_voice_category)
 
+    self_roles_category = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="self-roles-category",
+        label="self roles category", name="✦▬▬ ☆ 𝐒𝐄𝐋𝐅 𝐑𝐎𝐋𝐄𝐒 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("selfRolesCategory"))],
+    )
+    managed["selfRolesCategory"] = _channel_id(self_roles_category)
+
+    help_category = _ensure_resource(
+        snapshot=snapshot, request_json=request_json, token=token,
+        timeout=timeout, report=report, key="help-category",
+        label="help category", name="✦▬▬ ☆ 𝐇𝐄𝐋𝐏 ☆▬▬✦",
+        channel_type=CATEGORY_CHANNEL,
+        preferred_ids=[_permission_value(managed.get("helpCategory"))],
+    )
+    managed["helpCategory"] = _channel_id(help_category)
+
     panels = _ensure_resource(
         snapshot=snapshot,
         request_json=request_json,
@@ -1209,7 +1229,7 @@ def provision_guild_resources(
         name="🎭〢sᴇʟғ-ʀᴏʟᴇs",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(managed.get("panelsChannel"))],
-        parent_id=_channel_id(community),
+        parent_id=_channel_id(self_roles_category),
         overwrites=public_overwrites,
     )
     managed["panelsChannel"] = _channel_id(panels)
@@ -1251,7 +1271,7 @@ def provision_guild_resources(
         name="🆘〢ʜᴇʟᴘ",
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(managed.get("helpChannel"))],
-        parent_id=_channel_id(community),
+        parent_id=_channel_id(help_category),
         overwrites=public_overwrites,
     )
     managed["helpChannel"] = _channel_id(help_panel)

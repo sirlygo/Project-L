@@ -76,6 +76,8 @@ class SetupConfigTests(unittest.TestCase):
             "publicVoicePanelChannel",
             "voiceHubCategory",
             "publicVoiceCategory",
+            "helpCategory",
+            "selfRolesCategory",
             "xpChannel",
             "informationCategory",
             "announcementsCategory",
@@ -109,6 +111,17 @@ class SetupConfigTests(unittest.TestCase):
         restored = flatten_config(config, [])
         self.assertTrue(restored["antiSpamEnabled"])
         self.assertTrue(restored["blockInviteLinks"])
+
+    def test_branding_dashboard_options_round_trip(self):
+        values = self.valid_values()
+        values["rulesText"] = "Be kind and keep channels on topic."
+        values["art.rules"] = "Data/art/rules.gif"
+        config, _roles = build_configuration(values, self.example, environ={})
+        self.assertEqual(config["branding"]["rulesText"], values["rulesText"])
+        self.assertEqual(config["branding"]["art"]["rules"], values["art.rules"])
+        restored = flatten_config(config, [])
+        self.assertEqual(restored["rulesText"], values["rulesText"])
+        self.assertEqual(restored["art.rules"], values["art.rules"])
 
     def test_automatic_setup_can_create_verified_role_with_cleanup_enabled(self):
         values = self.valid_values()

@@ -80,13 +80,7 @@ class Leveling(commands.Cog):
         self.voice_xp_tick.cancel()
 
     async def announce(self, member, track, milestone, config):
-        role_id = config.get("managedResources", {}).get("levelRoles", {}).get(track, {}).get(str(milestone), 0)
-        role = member.guild.get_role(int(role_id or 0))
-        if role and role not in member.roles:
-            try:
-                await member.add_roles(role, reason=f"Project L {track} level {milestone}")
-            except (discord.Forbidden, discord.HTTPException):
-                pass
+        await self.ensure_milestone_roles(member, track, milestone, config)
         channel_id = config.get("managedResources", {}).get("xpChannel", 0)
         channel = member.guild.get_channel(int(channel_id or 0))
         if channel:
@@ -95,6 +89,21 @@ class Leveling(commands.Cog):
                     f"✨ {member.mention} reached **{track.title()} Level {milestone}**! "
                     "Use `/rank` to see your progress."
                 )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    async def ensure_milestone_roles(self, member, track, level, config):
+        """Higher levels keep every previously unlocked lounge role."""
+        role_ids = config.get("managedResources", {}).get("levelRoles", {}).get(track, {})
+        missing = [
+            role for milestone in (5, 15, 30)
+            if level >= milestone
+            for role in [member.guild.get_role(int(role_ids.get(str(milestone), 0) or 0))]
+            if role is not None and role not in member.roles
+        ]
+        if missing:
+            try:
+                await member.add_roles(*missing, reason=f"Project L {track} level {level}")
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
@@ -143,6 +152,12 @@ class Leveling(commands.Cog):
             await interaction.response.send_message("This command is only available in the configured server.", ephemeral=True)
             return
         chat, voice = member_xp(interaction.guild_id, interaction.user.id)
+        await self.ensure_milestone_roles(
+            interaction.user, "chat", level_for_xp(chat), config,
+        )
+        await self.ensure_milestone_roles(
+            interaction.user, "voice", level_for_xp(voice), config,
+        )
         await interaction.response.send_message(
             f"Chat: **Level {level_for_xp(chat)}** ({chat} XP)\n"
             f"Voice: **Level {level_for_xp(voice)}** ({voice} XP)\n"

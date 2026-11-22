@@ -37,7 +37,7 @@ wizard.
    resolves the Bot page directly from the entered token. Authorize the invite,
    return to setup, choose **Check Readiness**, then **Save & Create**.
 5. Project L creates or reuses its verified and streamer roles, secured
-   categories and channels, statistics counters, a self-roles channel, a
+   categories and channels, statistics counters, a dedicated Self Roles category, a
    private-voice creation panel, and a help ticket channel. It
    also creates `#verify`, `#welcome`, a general chat channel, rules,
    announcements, boosts, giveaways, XP progress, three level lounges,
@@ -72,11 +72,24 @@ An Information category holds verify, welcome, and rules; an Announcements
 category holds announcements, boosts, and giveaways. Rules and announcements
 are read-only for regular members; add your own text after setup.
 
+Self Roles and Help each have their own category. General Chat is first in
+Community. Reaching a higher chat or voice milestone retains all earlier
+lounge roles, so lower-level lounges remain accessible.
+
 The Voice Creation category holds short `create-private` and
 `create-public` panel channels. Public rooms appear in Public Voice, are visible
 to verified members, and are removed after everyone leaves. A never-joined
-room expires after two minutes. The original fixed Custom Voice Chat can be
+room expires after two minutes. Streamers can name their private room in a
+button dialog. The original fixed Custom Voice Chat can be
 removed once it is empty and the public creation panel is working.
+
+The Branding page lets an owner select local PNG, JPG, or animated GIF artwork
+for managed panels and channel headers. It also contains editable server rules.
+Save and restart the bot to refresh its own existing embeds. The bundled GIFs
+cover Rules, Announcements, Giveaways, Server Boosts, and Stream Alerts.
+`Data/art/project_l_avatar.gif` is an optional animated bot avatar for manual
+upload in the Discord Developer Portal; setup will not overwrite the bot's
+profile image automatically.
 
 The setup window combines descriptive pages into Server Layout and adds a
 Moderation page. Its optional anti-spam and Discord-invite filters are off by

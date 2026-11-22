@@ -13,6 +13,7 @@ from collections import deque
 from easy_pil import Editor, load_image_async, Font
 from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
+from channel_headers import ensure_channel_headers
 from config_loader import (
     BASE_DIR,
     ConfigError,
@@ -362,11 +363,18 @@ async def on_ready():
             print("[!] Panel setup needs attention: " + "; ".join(panel_report.failed))
         client.panels_reconciled = not panel_report.failed
 
+    if not client.headers_reconciled:
+        installed_headers = await ensure_channel_headers(client)
+        if installed_headers:
+            print("[OK] Installed channel headers: " + ", ".join(installed_headers))
+        client.headers_reconciled = True
+
     if not client.layout_reconciled:
         managed = config.get("managedResources", {})
         category_order = (
             "statsCategory", "informationCategory", "announcementsCategory",
-            "communityCategory", "voiceHubCategory", "publicVoiceCategory",
+            "communityCategory", "selfRolesCategory", "helpCategory",
+            "voiceHubCategory", "publicVoiceCategory",
             "voicecategory", "staffCategory", "modmail",
         )
         ordered_ids = [
@@ -390,6 +398,15 @@ async def on_ready():
                 print(f"[!] Could not position category {category_id}: {exc}")
                 all_positioned = False
         client.layout_reconciled = all_positioned
+
+        general_id = int(managed.get("generalChatChannel", 0) or 0)
+        general = client.get_channel(general_id)
+        if isinstance(general, discord.TextChannel) and general.position != 0:
+            try:
+                await general.edit(position=0, reason="Keep general chat first in Community")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[!] Could not position general chat: {exc}")
+                client.layout_reconciled = False
 
     if guildId and any(serverStats.values()) and not update_stats.is_running():
         update_stats.start()
@@ -935,6 +952,7 @@ def configure_client_state():
     client.persistent_state_loaded = False
     client.twitch_state_loaded = False
     client.panels_reconciled = False
+    client.headers_reconciled = False
     client.layout_reconciled = False
     client.configured_guild_id = guildId
     client.colour = discord.Colour.from_rgb(101, 255, 0)

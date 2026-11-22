@@ -6,11 +6,17 @@ third-party image URLs.
 | File | Canvas | Used by |
 | --- | --- | --- |
 | `project_l_logo.png` | 1024 x 1024, PNG | Bot/application avatar and optional server icon |
+| `project_l_avatar.gif` | 384 px wide, animated GIF | Optional bot avatar for manual Developer Portal upload |
 | `project_l_server_banner.png` | 1920 x 1080, PNG | Discord server banner (16:9) |
-| `verification.png` | 1200 x 400, PNG | Verification panel, automatic |
-| `private_voice.png` | 1200 x 400, PNG | Private-voice panel, automatic |
-| `public_voice.png` | Wide PNG | Public voice-creation panel, automatic |
-| `tickets.png` | 1200 x 400, PNG | Ticket panel, automatic |
+| `verification.gif` | Animated GIF | Verification panel, automatic |
+| `private_voice.gif` | Animated GIF | Private-voice panel, automatic |
+| `public_voice.gif` | Animated GIF | Public voice-creation panel, automatic |
+| `tickets.gif` | Animated GIF | Ticket panel, automatic |
+| `rules.gif` | Wide animated GIF | Rules channel header and editable rules embed |
+| `announcements.gif` | Wide animated GIF | Announcements channel header |
+| `giveaways.gif` | Wide animated GIF | Giveaways channel header |
+| `boosts.gif` | Wide animated GIF | Server Boosts channel header |
+| `stream_alerts.gif` | Wide animated GIF | Stream Alerts channel header |
 | `self_roles_colors.gif` | 900 px wide, GIF | Color role panel |
 | `self_roles_pronouns.gif` | 900 px wide, GIF | Pronoun role panel |
 | `self_roles_platform.gif` | 900 px wide, GIF | Gaming platform role panel |
@@ -33,7 +39,8 @@ Each emoji PNG must be at most 256 KiB and no larger than 512 x 512. Invalid or
 missing optional art is reported as a warning and never prevents core server
 setup.
 
-The bot uploads the four panel banners as attachments on the same messages as
+The four panel GIFs are generated from the matching PNG source images by
+`scripts/encode_channel_gifs.py`. The bot uploads them on the same messages as
 their embeds. This makes the image URLs durable and keeps a missing art file
 from affecting the buttons. `Commands/panels.py` falls back to a text-only
 embed if an optional banner is unavailable.

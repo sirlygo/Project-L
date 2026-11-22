@@ -95,6 +95,8 @@ def _required_resource_errors(config: Mapping[str, Any]) -> list[str]:
         "staff category": managed.get("staffCategory"),
         "server statistics category": managed.get("statsCategory"),
         "panels channel": managed.get("panelsChannel"),
+        "self roles category": managed.get("selfRolesCategory"),
+        "help category": managed.get("helpCategory"),
         "private voice creation channel": managed.get("privateVoicePanelChannel"),
         "help channel": managed.get("helpChannel"),
         "general channel": managed.get("welcomeMessagesChannel"),

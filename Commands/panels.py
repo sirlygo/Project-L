@@ -13,20 +13,30 @@ from discord.ext import commands
 from config_loader import BASE_DIR, load_config, load_role_ids
 from logFunction import print_interaction_info
 from self_roles import ROLE_GROUPS, managed_role_ids
+from branding import resolve_art_path
 
 SELF_ROLES_IMAGE = BASE_DIR / "Data" / "self_roles.gif"
 PANEL_ART_DIR = BASE_DIR / "Data" / "art"
 PANEL_ART_IMAGES = {
-    "verification": PANEL_ART_DIR / "verification.png",
-    "private_voice": PANEL_ART_DIR / "private_voice.png",
-    "public_voice": PANEL_ART_DIR / "public_voice.png",
-    "tickets": PANEL_ART_DIR / "tickets.png",
+    "verification": PANEL_ART_DIR / "verification.gif",
+    "private_voice": PANEL_ART_DIR / "private_voice.gif",
+    "public_voice": PANEL_ART_DIR / "public_voice.gif",
+    "tickets": PANEL_ART_DIR / "tickets.gif",
     "self_roles_header": SELF_ROLES_IMAGE,
     **{
         f"self_roles:{group}": PANEL_ART_DIR / f"self_roles_{group}.gif"
         for group in ROLE_GROUPS
     },
 }
+
+
+def panel_art_path(kind: str):
+    default = PANEL_ART_IMAGES.get(kind)
+    if default is None:
+        return None
+    key = kind.replace(":", "_")
+    configured = resolve_art_path(key, load_config())
+    return configured if configured != resolve_art_path(key) else default
 LEGACY_SELF_ROLE_GROUPS = {
     "color roles": "colors",
     "gender roles": "pronouns",
@@ -114,12 +124,12 @@ async def repair_self_role_panel_images(channel, bot_user_id):
         if not is_self_role_panel_message(message, bot_user_id):
             continue
         group = LEGACY_SELF_ROLE_GROUPS[normalized_panel_title(message.embeds[0].title)]
-        art_path = PANEL_ART_IMAGES[f"self_roles:{group}"]
+        art_path = panel_art_path(f"self_roles:{group}")
         if not art_path.is_file():
             failures.append((message.id, FileNotFoundError(str(art_path))))
             continue
         digest = sha256(art_path.read_bytes()).hexdigest()[:10]
-        filename = f"self_roles-{group}-{message.id}-{digest}.gif"
+        filename = f"self_roles-{group}-{message.id}-{digest}{art_path.suffix.casefold()}"
         if _panel_image_is_current(message, filename):
             continue
         image_file = None
@@ -161,11 +171,11 @@ def _component_custom_ids(message) -> set[str]:
 
 
 def _managed_panel_art_filename(kind: str) -> str | None:
-    art_path = PANEL_ART_IMAGES.get(kind)
+    art_path = panel_art_path(kind)
     if art_path is None:
         return None
     stem = f"project_l_{kind.replace(':', '_')}"
-    if kind.startswith("self_roles:") and art_path.is_file():
+    if art_path.is_file():
         stem += f"_{sha256(art_path.read_bytes()).hexdigest()[:10]}"
     return f"{stem}{art_path.suffix.casefold()}"
 
@@ -173,7 +183,7 @@ def _managed_panel_art_filename(kind: str) -> str | None:
 def _is_managed_art_attachment(attachment, kind: str) -> bool:
     name = str(getattr(attachment, "filename", "")).casefold()
     stem = f"project_l_{kind.replace(':', '_')}"
-    suffix = PANEL_ART_IMAGES[kind].suffix.casefold()
+    suffix = panel_art_path(kind).suffix.casefold()
     return name == f"{stem}{suffix}" or (
         name.startswith(f"{stem}_") and name.endswith(suffix)
     )
@@ -182,7 +192,7 @@ def _is_managed_art_attachment(attachment, kind: str) -> bool:
 def managed_panel_art_is_current(message, kind: str) -> bool:
     """Return whether a managed panel uses its durable bundled attachment."""
     filename = _managed_panel_art_filename(kind)
-    art_path = PANEL_ART_IMAGES.get(kind)
+    art_path = panel_art_path(kind)
     if filename is None or art_path is None or not art_path.is_file():
         return True
     embeds = getattr(message, "embeds", [])
@@ -194,7 +204,7 @@ def managed_panel_art_is_current(message, kind: str) -> bool:
 
 async def repair_managed_panel_art(message, kind: str) -> bool:
     """Attach bundled art to an existing panel without replacing its controls."""
-    art_path = PANEL_ART_IMAGES.get(kind)
+    art_path = panel_art_path(kind)
     filename = _managed_panel_art_filename(kind)
     embeds = getattr(message, "embeds", [])
     if (
@@ -362,7 +372,7 @@ def private_voice_embed(colour) -> discord.Embed:
     embed = discord.Embed(
         title="Private voice channels",
         description=(
-            "Streamers can create a private voice channel with the button below. "
+            "Streamers can name a private voice channel with the button below. "
             "The creator receives permission to manage that channel."
         ),
         colour=colour,
@@ -396,7 +406,7 @@ def ticket_embed(colour) -> discord.Embed:
 
 async def send_panel_with_local_art(kind, channel, *, embed, view):
     """Send a panel with its bundled art as a durable Discord attachment."""
-    art_path = PANEL_ART_IMAGES.get(kind)
+    art_path = panel_art_path(kind)
     image_file = None
     if art_path is not None and art_path.is_file():
         try:
@@ -428,9 +438,11 @@ async def send_reaction_role_panel(channel, guild, colour):
     embed.set_footer(text="Project L • Reaction Roles")
     image_file = None
     try:
-        if SELF_ROLES_IMAGE.is_file():
-            image_file = discord.File(SELF_ROLES_IMAGE, filename="self_roles.gif")
-            embed.set_image(url="attachment://self_roles.gif")
+        art_path = panel_art_path("self_roles_header")
+        if art_path.is_file():
+            filename = f"project_l_reaction_roles{art_path.suffix.casefold()}"
+            image_file = discord.File(art_path, filename=filename)
+            embed.set_image(url=f"attachment://{filename}")
         send_options = {"embed": embed, "view": ReactionRoleView(options)}
         if image_file is not None:
             send_options["file"] = image_file

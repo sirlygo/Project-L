@@ -14,6 +14,7 @@
   "kickMemberFunction": false,
   "logMessageContent": false,
   "moderation": {"antiSpamEnabled": false, "blockInviteLinks": false},
+  "branding": {"rulesText": "", "art": {}},
   "voicecategory": 0,
   "streamRole": 0,
   "ytChannel": "",
@@ -42,6 +43,8 @@
     "voiceHubCategory": 0,
     "publicVoiceCategory": 0,
     "publicVoicePanelChannel": 0,
+    "helpCategory": 0,
+    "selfRolesCategory": 0,
     "levelLounges": {"5": 0, "15": 0, "30": 0},
     "staffRoles": {"admin": 0, "mod": 0},
     "levelRoles": {

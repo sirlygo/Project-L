@@ -199,6 +199,8 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertTrue(config["managedResources"]["informationCategory"])
         self.assertTrue(config["managedResources"]["announcementsCategory"])
         self.assertTrue(config["managedResources"]["generalChatChannel"])
+        self.assertTrue(config["managedResources"]["selfRolesCategory"])
+        self.assertTrue(config["managedResources"]["helpCategory"])
         self.assertEqual(len(config["managedResources"]["levelRoles"]["chat"]), 3)
         self.assertEqual(len(config["managedResources"]["levelRoles"]["voice"]), 3)
         for key, name in (
@@ -210,6 +212,10 @@ class DiscordProvisioningTests(unittest.TestCase):
             channel_id = config["managedResources"][key]
             channel = next(item for item in self.api.channels if int(item["id"]) == channel_id)
             self.assertEqual(channel["name"], name)
+            if key == "panelsChannel":
+                self.assertEqual(int(channel["parent_id"]), config["managedResources"]["selfRolesCategory"])
+            if key == "helpChannel":
+                self.assertEqual(int(channel["parent_id"]), config["managedResources"]["helpCategory"])
         self.assertEqual(config["welcome_images"], 0)
         self.assertTrue(config["transcripts"])
         self.assertTrue(config["modmail"])

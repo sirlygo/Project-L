@@ -10,6 +10,7 @@ import webbrowser
 from pathlib import Path
 
 from config_loader import ConfigError, load_role_ids
+from branding import ART_KEYS, DEFAULT_RULES
 from discord_provisioning import (
     DiscordGuildAccessError,
     DiscordProvisioningError,
@@ -328,7 +329,10 @@ class ProjectLSetupWizard:
             borderwidth=1,
         )
         text.grid(row=0, column=1, sticky="ew")
-        text.insert("1.0", str(self.initial_values.get(key, "")))
+        initial_text = self.initial_values.get(key, "")
+        if key == "rulesText" and not initial_text:
+            initial_text = DEFAULT_RULES
+        text.insert("1.0", str(initial_text))
         self.ttk.Label(
             field,
             text=description,
@@ -567,7 +571,7 @@ class ProjectLSetupWizard:
         self._section(
             "tickets",
             "Public resources",
-            "Information has #verify, #welcome, and rules. Announcements has updates, boosts, giveaways, and stream alerts. Community has chat and self-roles. Voice Creation has the public and private create buttons; public rooms are temporary.",
+            "Information has Verify, Welcome, and Rules. Announcements has updates, boosts, giveaways, and stream alerts. Community starts with General. Self Roles and Help each have their own category. Voice Creation has public and private naming buttons; public rooms are temporary.",
         )
         self._section(
             "tickets",
@@ -703,7 +707,9 @@ class ProjectLSetupWizard:
             (
                 "Discord keeps application and server branding under owner control. "
                 "Use the buttons below to open the included files and the correct "
-                "Discord pages. Upload project_l_logo.png as the bot/server icon and "
+                "Discord pages. Upload project_l_avatar.gif as the animated bot avatar "
+                "(if your bot's Developer Portal accepts GIF), project_l_logo.png "
+                "as the server icon, and "
                 "project_l_server_banner.png as the server banner. Project L will not "
                 "overwrite branding already chosen by the server owner."
             ),
@@ -740,6 +746,40 @@ class ProjectLSetupWizard:
                 "image host is required, and missing optional art never disables a button."
             ),
         )
+        self._section(
+            "branding", "Your own theme artwork",
+            "Choose a PNG, JPG, or animated GIF for any panel or channel header. "
+            "Leave a field blank to use the included Project L art. Save and restart "
+            "the bot to refresh existing managed messages in place.",
+        )
+        for key in ART_KEYS:
+            field_key = f"art.{key}"
+            entry = self._entry(
+                "branding", field_key, key.replace("_", " ").title(),
+                "Optional local image; PNG, JPG, or GIF under 8 MiB.",
+            )
+            self.ttk.Button(
+                entry.master, text="Browse…",
+                command=lambda selected=field_key: self._browse_art(selected),
+            ).grid(row=0, column=2, padx=(8, 0), sticky="w")
+        self._section(
+            "branding", "Editable server rules",
+            "This text is published in the Rules channel as a branded embed. "
+            "Edit it here and save to update the bot's rules message on restart.",
+        )
+        self._text(
+            "branding", "rulesText", "Server Rules", DEFAULT_RULES,
+            height=14,
+        )
+
+    def _browse_art(self, key):
+        from tkinter import filedialog
+        selected = filedialog.askopenfilename(
+            parent=self.root, title="Choose Project L artwork",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.gif")],
+        )
+        if selected:
+            self.variables[key].set(selected)
 
     def _toggle_secrets(self, show: bool):
         for entry in self.secret_entries:

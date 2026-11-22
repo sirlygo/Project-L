@@ -2,8 +2,10 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
-from Commands.leveling import add_xp, level_for_xp, member_xp
+from Commands.leveling import Leveling, add_xp, level_for_xp, member_xp
 
 
 class LevelingTests(unittest.TestCase):
@@ -21,3 +23,16 @@ class LevelingTests(unittest.TestCase):
 
     def test_level_thresholds(self):
         self.assertEqual([level_for_xp(value) for value in (0, 99, 100, 2499, 2500)], [0, 0, 1, 4, 5])
+
+
+class CumulativeMilestoneRoleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_level_30_keeps_all_lower_lounges(self):
+        roles = {5: object(), 15: object(), 30: object()}
+        guild = SimpleNamespace(get_role=lambda role_id: roles.get(role_id))
+        member = SimpleNamespace(guild=guild, roles=[], add_roles=AsyncMock())
+        config = {"managedResources": {"levelRoles": {"chat": {
+            "5": 5, "15": 15, "30": 30,
+        }}}}
+        await Leveling.ensure_milestone_roles(None, member, "chat", 30, config)
+        member.add_roles.assert_awaited_once()
+        self.assertEqual(member.add_roles.await_args.args, tuple(roles.values()))

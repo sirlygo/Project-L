@@ -211,7 +211,7 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
 
         await send_managed_panel("self_roles_header", Channel(), None, discord.Colour.green())
         self.assertEqual(sent["embed"].footer.text, "Project L • Self Roles Header")
-        self.assertEqual(sent["file"].filename, "project_l_self_roles_header.gif")
+        self.assertRegex(sent["file"].filename, r"^project_l_self_roles_header_[0-9a-f]{10}\.gif$")
         self.assertIsNone(sent["view"])
 
     async def test_self_roles_header_is_installed_before_group_art(self):
@@ -260,11 +260,11 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
         edited = message.edit.await_args.kwargs
         self.assertEqual(
             edited["embed"].image.url,
-            "attachment://project_l_verification.png",
+            f"attachment://{edited['attachments'][-1].filename}",
         )
-        self.assertEqual(
+        self.assertRegex(
             edited["attachments"][-1].filename,
-            "project_l_verification.png",
+            r"^project_l_verification_[0-9a-f]{10}\.png$",
         )
 
     async def test_changed_self_role_gif_replaces_old_attachment(self):
@@ -335,9 +335,9 @@ class AutomaticPanelTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             sent["embed"].image.url,
-            "attachment://project_l_verification.png",
+            f"attachment://{sent['file'].filename}",
         )
-        self.assertEqual(sent["file"].filename, "project_l_verification.png")
+        self.assertRegex(sent["file"].filename, r"^project_l_verification_[0-9a-f]{10}\.png$")
 
     async def test_missing_local_panel_art_uses_text_only_embed(self):
         sent = {}
