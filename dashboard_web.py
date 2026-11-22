@@ -21,9 +21,10 @@ from PIL import Image
 from branding import ART_KEYS, DEFAULT_RULES
 from config_loader import BASE_DIR, CONFIG_PATH, load_config
 from dashboard_store import (
-    add_staff_note, case_exists, get_appeal, get_ticket, get_transcript, list_appeals, list_cases, list_config_history,
+    add_staff_note, case_exists, get_appeal, get_config_snapshot, get_ticket, get_transcript, list_appeals, list_cases, list_config_history,
     list_staff_notes, list_tickets, overview, record_config_snapshot, review_appeal,
     search_transcripts, submit_appeal, ticket_exists, update_ticket,
+    cancel_announcement, list_announcements, schedule_announcement,
 )
 from moderation_policy import validate_escalation
 from ticket_forms import DEFAULT_FORMS, validate_forms
@@ -114,6 +115,11 @@ class Dashboard:
             web.get("/api/notes/{kind}/{subject_id}", self.get_notes),
             web.post("/api/notes/{kind}/{subject_id}", self.post_note),
             web.get("/api/config-history", self.config_history),
+            web.post("/api/config-history/{snapshot_id}/restore", self.restore_config),
+            web.get("/api/health", self.health),
+            web.get("/api/announcements", self.get_announcements),
+            web.post("/api/announcements", self.post_announcement),
+            web.post("/api/announcements/{announcement_id}/cancel", self.cancel_scheduled_announcement),
             web.patch("/api/tickets/{channel_id}", self.patch_ticket),
             web.get("/api/transcripts", self.api_transcripts),
             web.get("/api/transcripts/{channel_id}", self.download_transcript),
@@ -259,6 +265,71 @@ class Dashboard:
     async def config_history(self, request):
         identity = await self._require(request, owner=True)
         return web.json_response({"history": list_config_history(identity["guild"].id)})
+
+    async def health(self, request):
+        identity = await self._require(request, owner=True)
+        return web.json_response({
+            "botConnected": not self.bot.is_closed(),
+            "guildAvailable": identity["guild"] is not None,
+            "configuredGuildId": str(load_config()["guildId"]),
+            "dashboardEnabled": True,
+        })
+
+    async def get_announcements(self, request):
+        identity = await self._require(request, owner=True)
+        return web.json_response({"announcements": list_announcements(identity["guild"].id)})
+
+    async def post_announcement(self, request):
+        identity = await self._require(request, owner=True)
+        try:
+            data = await request.json()
+            channel_id = int(data["channelId"])
+            run_at = int(data["runAt"])
+            content = str(data["content"]).strip()
+            channel = identity["guild"].get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                raise ValueError("Select a text channel in this server.")
+            if not channel.permissions_for(identity["guild"].me).send_messages:
+                raise ValueError("The bot cannot post in that channel.")
+            announcement_id = schedule_announcement(
+                identity["guild"].id, channel_id, identity["user_id"], content, run_at,
+            )
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            return _json_error(str(exc))
+        return web.json_response({"created": True, "id": announcement_id}, status=201)
+
+    async def cancel_scheduled_announcement(self, request):
+        identity = await self._require(request, owner=True)
+        try:
+            announcement_id = int(request.match_info["announcement_id"])
+        except ValueError:
+            return _json_error("Invalid announcement ID.")
+        if not cancel_announcement(identity["guild"].id, announcement_id):
+            return _json_error("Announcement is no longer pending.", 409)
+        return web.json_response({"cancelled": True})
+
+    async def restore_config(self, request):
+        identity = await self._require(request, owner=True)
+        try:
+            snapshot_id = int(request.match_info["snapshot_id"])
+        except ValueError:
+            return _json_error("Invalid snapshot ID.")
+        snapshot = get_config_snapshot(identity["guild"].id, snapshot_id)
+        if not isinstance(snapshot, dict):
+            return _json_error("Snapshot not found.", 404)
+        if set(snapshot) != {"branding", "moderation", "ticketWorkspace"}:
+            return _json_error("Snapshot is incomplete.", 409)
+        async with self.lock:
+            config = load_config()
+            record_config_snapshot(config["guildId"], identity["user_id"], {
+                key: config.get(key) for key in snapshot
+            })
+            for key, value in snapshot.items():
+                config[key] = value
+            _write_json_atomic(CONFIG_PATH, config)
+        from channel_headers import ensure_channel_headers
+        await ensure_channel_headers(self.bot)
+        return web.json_response({"restored": True})
 
     async def get_notes(self, request):
         identity = await self._require(request, staff=True)

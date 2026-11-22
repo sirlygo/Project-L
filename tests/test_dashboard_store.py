@@ -1,13 +1,17 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from dashboard_store import (
-    add_staff_note, create_ticket_record, get_appeal, get_ticket,
-    list_appeals, list_cases, list_staff_notes,
+    add_staff_note, cancel_announcement, claim_due_announcements,
+    create_ticket_record, finish_announcement, get_appeal, get_config_snapshot, get_ticket,
+    list_announcements, list_appeals, list_cases, list_staff_notes,
     list_tickets, overview,
-    mark_response_alerted, overdue_tickets, purge_transcripts, record_case,
+    mark_interrupted_announcements_failed, mark_response_alerted, overdue_tickets,
+    purge_transcripts, record_case,
+    record_config_snapshot, schedule_announcement,
     record_staff_response, review_appeal, submit_appeal, update_ticket,
     get_transcript, save_transcript, search_transcripts,
 )
@@ -22,6 +26,21 @@ class DashboardStoreTests(unittest.TestCase):
             self.assertEqual(list_cases(1)[0]["id"], case_id)
             self.assertEqual(list_cases(1, member_id=2)[0]["action"], "warn")
             self.assertEqual(list_cases(2), [])
+            snapshot_id = record_config_snapshot(1, 3, {"branding": {"rulesText": "old"}})
+            self.assertEqual(get_config_snapshot(1, snapshot_id)["branding"]["rulesText"], "old")
+            self.assertIsNone(get_config_snapshot(2, snapshot_id))
+            due = int(time.time()) + 3600
+            scheduled = schedule_announcement(1, 10, 3, "Movie night Friday", due)
+            self.assertEqual(list_announcements(2), [])
+            self.assertEqual(claim_due_announcements(1, now=due - 1), [])
+            self.assertEqual(claim_due_announcements(1, now=due)[0]["id"], scheduled)
+            self.assertEqual(claim_due_announcements(1, now=due), [])
+            self.assertEqual(mark_interrupted_announcements_failed(2), 0)
+            self.assertEqual(mark_interrupted_announcements_failed(1), 1)
+            self.assertEqual(list_announcements(1)[0]["status"], "failed")
+            finish_announcement(1, scheduled, True)
+            self.assertEqual(list_announcements(1)[0]["status"], "failed")
+            self.assertFalse(cancel_announcement(1, scheduled))
             note_id = add_staff_note(1, "case", case_id, 3, "Internal context")
             self.assertEqual(list_staff_notes(1, "case", case_id)[0]["id"], note_id)
             self.assertEqual(list_staff_notes(2, "case", case_id), [])

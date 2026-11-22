@@ -46,6 +46,13 @@ def _connect():
         "CREATE TABLE IF NOT EXISTS config_history ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, "
         "actor_id INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at INTEGER NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS scheduled_announcements ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, "
+        "channel_id INTEGER NOT NULL, actor_id INTEGER NOT NULL, content TEXT NOT NULL, "
+        "run_at INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, "
+        "completed_at INTEGER);"
+        "CREATE INDEX IF NOT EXISTS announcements_due ON "
+        "scheduled_announcements(guild_id,status,run_at);"
     )
     columns = {row[1] for row in db.execute("PRAGMA table_info(tickets)")}
     if "first_staff_response_at" not in columns:
@@ -203,6 +210,78 @@ def list_config_history(guild_id):
             "SELECT id,guild_id,actor_id,created_at FROM config_history "
             "WHERE guild_id=? ORDER BY id DESC LIMIT 30", (guild_id,),
         )]
+
+
+def get_config_snapshot(guild_id, snapshot_id):
+    with closing(_connect()) as db:
+        row = db.execute(
+            "SELECT snapshot FROM config_history WHERE guild_id=? AND id=?",
+            (guild_id, snapshot_id),
+        ).fetchone()
+    return json.loads(row["snapshot"]) if row else None
+
+
+def schedule_announcement(guild_id, channel_id, actor_id, content, run_at):
+    now = int(time.time())
+    if not 1 <= len(content) <= 1800 or not now < int(run_at) <= now + 365 * 86400:
+        raise ValueError("Announcement must be 1–1800 characters and scheduled within one year.")
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "INSERT INTO scheduled_announcements(guild_id,channel_id,actor_id,content,run_at,status,created_at) "
+            "VALUES(?,?,?,?,?,'pending',?)",
+            (guild_id, channel_id, actor_id, content, int(run_at), now),
+        ).lastrowid
+
+
+def list_announcements(guild_id):
+    with closing(_connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT * FROM scheduled_announcements WHERE guild_id=? ORDER BY run_at DESC LIMIT 100",
+            (guild_id,),
+        )]
+
+
+def cancel_announcement(guild_id, announcement_id):
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "UPDATE scheduled_announcements SET status='cancelled',completed_at=? "
+            "WHERE guild_id=? AND id=? AND status='pending'",
+            (int(time.time()), guild_id, announcement_id),
+        ).rowcount > 0
+
+
+def claim_due_announcements(guild_id, now=None):
+    current = int(time.time()) if now is None else int(now)
+    with closing(_connect()) as db, db:
+        rows = [dict(row) for row in db.execute(
+            "SELECT * FROM scheduled_announcements WHERE guild_id=? AND status='pending' "
+            "AND run_at<=? ORDER BY run_at LIMIT 20", (guild_id, current),
+        )]
+        claimed = []
+        for row in rows:
+            if db.execute("UPDATE scheduled_announcements SET status='sending' "
+                          "WHERE id=? AND status='pending'", (row["id"],)).rowcount:
+                claimed.append(row)
+        return claimed
+
+
+def finish_announcement(guild_id, announcement_id, success):
+    with closing(_connect()) as db, db:
+        db.execute(
+            "UPDATE scheduled_announcements SET status=?,completed_at=? "
+            "WHERE guild_id=? AND id=? AND status='sending'",
+            ("sent" if success else "failed", int(time.time()), guild_id, announcement_id),
+        )
+
+
+def mark_interrupted_announcements_failed(guild_id):
+    """Avoid duplicate posts after a crash during an uncertain send."""
+    with closing(_connect()) as db, db:
+        return db.execute(
+            "UPDATE scheduled_announcements SET status='failed',completed_at=? "
+            "WHERE guild_id=? AND status='sending'",
+            (int(time.time()), guild_id),
+        ).rowcount
 
 
 def purge_transcripts(guild_id, older_than):

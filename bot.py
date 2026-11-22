@@ -15,7 +15,11 @@ from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
 from channel_headers import ensure_channel_headers
 from dashboard_web import start_dashboard
-from dashboard_store import mark_response_alerted, overdue_tickets, purge_transcripts
+from dashboard_store import (
+    claim_due_announcements, finish_announcement, mark_interrupted_announcements_failed,
+    mark_response_alerted,
+    overdue_tickets, purge_transcripts,
+)
 from config_loader import (
     BASE_DIR,
     ConfigError,
@@ -428,6 +432,11 @@ async def on_ready():
 
     if not ticket_maintenance.is_running():
         ticket_maintenance.start()
+    if not announcement_scheduler.is_running():
+        interrupted = await asyncio.to_thread(mark_interrupted_announcements_failed, guildId)
+        if interrupted:
+            print(f"[!] {interrupted} interrupted announcement(s) marked failed for manual review.")
+        announcement_scheduler.start()
 
     if not client.dashboard_attempted:
         client.dashboard_attempted = True
@@ -435,6 +444,25 @@ async def on_ready():
             client.dashboard_server = await start_dashboard(client)
         except (OSError, ValueError) as exc:
             print(f"[!] Browser dashboard could not start: {exc}")
+
+
+@tasks.loop(seconds=30)
+async def announcement_scheduler():
+    guild = client.get_guild(guildId)
+    if guild is None:
+        return
+    for announcement in await asyncio.to_thread(claim_due_announcements, guild.id):
+        channel = guild.get_channel(announcement["channel_id"])
+        sent = False
+        if isinstance(channel, discord.TextChannel):
+            try:
+                await channel.send(
+                    announcement["content"], allowed_mentions=discord.AllowedMentions.none(),
+                )
+                sent = True
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        await asyncio.to_thread(finish_announcement, guild.id, announcement["id"], sent)
 
 
 @tasks.loop(minutes=10)

@@ -330,6 +330,12 @@ Owners can set a first-response target; overdue tickets alert the configured
 purges expired locally searchable transcripts every ten minutes. Zero disables
 either policy. The dashboard also keeps a limited history of changes to its
 rules, moderation, ticket, and branding configuration (not credentials).
+Owners can restore one of those snapshots; the current settings are saved first.
+The owner dashboard also shows bot health and can schedule one-time text
+announcements up to a year ahead. Announcements never ping roles or members,
+can be cancelled before sending, and retain sent/failed status. If the bot
+crashes during a send, that item is marked failed for manual review rather
+than risk a duplicate post.
 
 To enable it, register `https://YOUR-DOMAIN/oauth/callback` as an OAuth2
 redirect URL for this bot in the Discord Developer Portal. Set these
