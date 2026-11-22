@@ -315,6 +315,39 @@ and hides `#welcome`. Private staff, modmail, and ticket areas keep their
 existing access rules. Server owners and administrators bypass ordinary channel
 visibility restrictions, so test the gate with a non-administrator account.
 
+## Browser dashboard (optional)
+
+The browser dashboard is part of the bot process and is **off by default**. It
+lets server owners edit rules, panel art, moderation thresholds, warning
+escalation, and ticket forms/priorities. Staff can review moderation cases,
+tickets, appeals, response times, and opt-in searchable transcripts. Members
+can submit one open appeal at a time. Discord sign-in and current server
+permissions are checked on every request; only owners or people with Manage
+Server can change settings. Raid detection and warning escalation are off until
+an owner explicitly enables them.
+
+To enable it, register `https://YOUR-DOMAIN/oauth/callback` as an OAuth2
+redirect URL for this bot in the Discord Developer Portal. Set these
+environment variables on the bot host (never commit the secrets):
+
+```text
+PROJECTL_DASHBOARD_PUBLIC_URL=https://YOUR-DOMAIN
+DISCORD_CLIENT_SECRET=<the bot application's OAuth2 client secret>
+PROJECTL_DASHBOARD_SESSION_SECRET=<at least 32 random characters>
+PROJECTL_DASHBOARD_PORT=8765
+```
+
+Point a TLS-enabled reverse proxy for that domain at `127.0.0.1:8765` on the
+bot host, then restart the bot and open the public URL. The dashboard binds
+only to loopback, so do not expose port 8765 directly to the internet. For a
+local-only trial, `http://localhost:8765` is permitted as the public URL if it
+is also registered in Discord OAuth2. A public HTTPS domain and the OAuth2
+client secret are still required for access away from the bot's PC. Treat
+`Data/dashboard.db` and retained ticket transcripts as private server data and
+back them up securely. Appeals record decisions; staff must perform any
+unban or other Discord action separately. Discord's native AutoMod can be
+configured in Server Settings alongside the bot's optional anti-spam controls.
+
 ## Data and privacy
 
 - Ticket attachments remain on Discord; the bot no longer uploads them to a

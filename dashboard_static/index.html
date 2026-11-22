@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d0d">
+  <title>Project L Control Room</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">L</span><span><strong>PROJECT L</strong><small>CONTROL ROOM</small></span></div>
+      <p class="sidebar-label">WORKSPACE</p>
+      <nav id="nav" aria-label="Dashboard sections">
+        <button data-view="overview">Overview</button>
+        <button data-view="cases">Moderation cases</button>
+        <button data-view="tickets">Ticket workspace</button>
+        <button data-view="appeals">Appeals</button>
+        <button data-view="settings">Customize</button>
+        <button data-view="my-appeal">Submit appeal</button>
+      </nav>
+      <div class="sidebar-bottom"><span class="signal"></span><span id="connection">Checking session</span></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><p class="eyebrow">SERVER MANAGEMENT</p><h1 id="page-title">Welcome to Project L</h1></div><div class="account"><span id="account-name"></span><button id="logout" class="quiet" hidden>Sign out</button></div></header>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="login-view" class="card hero"><p class="eyebrow">SAFE ACCESS</p><h2>Your server, one clear dashboard.</h2><p>Sign in with Discord to manage the server you have permission to moderate. Owners can also customize rules, art, tickets, and safety settings.</p><a class="primary-link" href="/login">Continue with Discord</a></section>
+      <section id="overview-view" class="view" hidden><div class="intro"><h2>Live overview</h2><p>Cases, support, appeals, and participation at a glance.</p></div><div id="overview-cards" class="stat-grid"></div></section>
+      <section id="cases-view" class="view" hidden><div class="intro"><h2>Moderation cases</h2><p>Bot-issued warnings and actions, searchable by member ID.</p></div><div class="toolbar"><label>Member ID <input id="case-member" inputmode="numeric" placeholder="Optional member ID"></label><button id="case-search">Search cases</button></div><div class="table-wrap"><table><thead><tr><th>Case</th><th>Member</th><th>Action</th><th>Reason</th><th>Moderator</th><th>Date</th></tr></thead><tbody id="case-rows"></tbody></table></div></section>
+      <section id="tickets-view" class="view" hidden><div class="intro"><h2>Ticket workspace</h2><p>Assign, prioritize, and close support conversations without losing their history.</p></div><div class="toolbar"><label>Status <select id="ticket-filter"><option value="">All tickets</option><option value="open">Open</option><option value="closed">Closed</option></select></label><label>Search <input id="ticket-search" placeholder="Ticket or owner ID"></label><button id="ticket-refresh">Refresh</button></div><div id="ticket-list" class="stack"></div><div class="card form-stack transcript-search"><h3>Search retained transcripts</h3><p>Available only when the owner enabled local transcript search before export.</p><div class="toolbar"><label>Words or phrase <input id="transcript-query" placeholder="Search ticket messages"></label><button id="transcript-search" type="button">Search transcripts</button></div><div id="transcript-results" class="stack"></div></div></section>
+      <section id="appeals-view" class="view" hidden><div class="intro"><h2>Appeals</h2><p>Review each request with an explicit decision. Decisions are recorded; they do not automatically undo a ban.</p></div><div id="appeal-list" class="stack"></div></section>
+      <section id="my-appeal-view" class="view" hidden><div class="intro"><h2>Submit an appeal</h2><p>Explain what happened. Staff will review your request; submitting does not guarantee a reversal.</p></div><form id="appeal-form" class="card form-stack"><label>Case ID, if known <input name="caseId" inputmode="numeric" placeholder="Optional"></label><label>Your appeal <textarea name="message" minlength="20" maxlength="2000" rows="8" required placeholder="Explain what happened and what you would like staff to reconsider."></textarea></label><button type="submit">Send appeal</button></form></section>
+      <section id="settings-view" class="view" hidden><div class="intro"><h2>Customize Project L</h2><p>Your choices are saved to this server and refresh bot-managed messages. Automatic penalties stay off until you enable them.</p></div><form id="settings-form" class="stack"><div class="card form-stack"><h3>Rules & safety</h3><label>Server rules <textarea id="rules-text" rows="12" maxlength="4096"></textarea></label><div class="toggle-grid"><label><input type="checkbox" id="anti-spam"> Anti-spam filter</label><label><input type="checkbox" id="block-invites"> Block invite links</label><label><input type="checkbox" id="raid-enabled"> Raid detection</label><label><input type="checkbox" id="escalation-enabled"> Warning escalation</label></div><div class="field-grid"><label>Messages allowed <input id="spam-limit" type="number" min="2" max="30"></label><label>Spam window, seconds <input id="spam-window" type="number" min="2" max="120"></label><label>Join burst threshold <input id="raid-limit" type="number" min="3" max="100"></label><label>Join window, seconds <input id="raid-window" type="number" min="5" max="300"></label><label>Raid response <select id="raid-action"><option value="alert">Alert staff only</option><option value="timeout">Timeout new arrivals</option></select></label></div><label>Warning steps (JSON array) <textarea id="escalation-json" rows="5" spellcheck="false"></textarea></label><p class="hint">Example: [{"count":3,"action":"timeout","minutes":10}]. Enabling this can automatically timeout or ban members.</p></div><div class="card form-stack"><h3>Ticket workflow</h3><label>Priority choices, comma separated <input id="ticket-priorities" placeholder="low, normal, high, urgent"></label><label><input type="checkbox" id="searchable-transcripts"> Keep searchable transcripts locally</label><p class="hint">This stores ticket message text for staff search. Leave off if your community does not need retention.</p><label>Ticket questions (JSON object) <textarea id="ticket-forms" rows="12" spellcheck="false"></textarea></label><p class="hint">Each help, suggestions, and report form supports up to five questions. Use an empty list to create that ticket type without a form.</p></div><div class="card form-stack"><h3>Artwork</h3><p>Upload your own PNG, JPG, or GIF for any managed panel or channel header. The bot keeps the file locally and refreshes its embed.</p><div id="art-slots" class="art-grid"></div></div><button type="submit" class="save">Save customization</button></form></section>
+    </main>
+  </div>
+</body>
+</html>

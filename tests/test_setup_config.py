@@ -107,9 +107,9 @@ class SetupConfigTests(unittest.TestCase):
         values["antiSpamEnabled"] = True
         values["blockInviteLinks"] = True
         config, _roles = build_configuration(values, self.example, environ={})
-        self.assertEqual(config["moderation"], {
-            "antiSpamEnabled": True, "blockInviteLinks": True,
-        })
+        self.assertTrue(config["moderation"]["antiSpamEnabled"])
+        self.assertTrue(config["moderation"]["blockInviteLinks"])
+        self.assertFalse(config["moderation"]["raidEnabled"])
         restored = flatten_config(config, [])
         self.assertTrue(restored["antiSpamEnabled"])
         self.assertTrue(restored["blockInviteLinks"])

@@ -292,10 +292,12 @@ def build_configuration(
 
     config["kickMemberFunction"] = bool(values.get("kickMemberFunction", False))
     config["logMessageContent"] = bool(values.get("logMessageContent", False))
-    config["moderation"] = {
+    moderation = dict(config.get("moderation") or {})
+    moderation.update({
         "antiSpamEnabled": bool(values.get("antiSpamEnabled", False)),
         "blockInviteLinks": bool(values.get("blockInviteLinks", False)),
-    }
+    })
+    config["moderation"] = moderation
 
     branding = config.setdefault("branding", {})
     if "rulesText" in values:

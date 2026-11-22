@@ -10,6 +10,8 @@ from config_loader import load_config, load_role_ids
 from self_roles import ROLE_GROUPS, managed_role_ids
 from Commands.public_voice import PublicVoiceNameModal
 from Commands.private_voice import PrivateVoiceNameModal
+from dashboard_store import create_ticket_record, record_staff_response, save_transcript, update_ticket
+from ticket_forms import TicketOpenModal, questions_for
 
 TICKET_TOPIC_PATTERN = re.compile(r"^ticket-owner:(\d+)$")
 
@@ -81,6 +83,19 @@ class OnInteractionEvent(commands.Cog):
         self.client = client
         self._ticket_permissions_repaired = False
 
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.guild is None or message.author.bot or not isinstance(message.channel, discord.TextChannel):
+            return
+        if ticket_owner_id(message.channel) is None:
+            return
+        permissions = message.author.guild_permissions
+        if permissions.administrator or permissions.manage_messages or permissions.moderate_members:
+            try:
+                record_staff_response(message.channel.id, message.guild.id)
+            except sqlite3.Error as exc:
+                print(f"[!] Could not record ticket response time: {exc}")
+
 
     def connect(self):
         try:
@@ -139,6 +154,14 @@ class OnInteractionEvent(commands.Cog):
                         quarantined += 1
                     else:
                         repaired += 1
+                        try:
+                            kind = next(
+                                (name.removeprefix("category_") for name, value in config["tickets"].items()
+                                 if value == category_id), "help",
+                            )
+                            create_ticket_record(channel.id, guild.id, owner_id, kind)
+                        except sqlite3.Error as exc:
+                            print(f"[!] Could not index existing ticket {channel.id}: {exc}")
                 except (discord.Forbidden, discord.HTTPException):
                     all_succeeded = False
                     print(f"[!] Could not secure existing ticket channel {channel.id}.")
@@ -324,6 +347,10 @@ class OnInteractionEvent(commands.Cog):
             "ticket_report",
         }:
             tickettype = interaction.data['custom_id'].split("_")[1]
+            questions = questions_for(config, tickettype)
+            if questions:
+                await interaction.response.send_modal(TicketOpenModal(tickettype, questions))
+                return
             categoryid = config["tickets"][f"category_{tickettype}"]
             await interaction.response.defer(ephemeral=True, thinking=True)
             ticketchannel = None
@@ -405,6 +432,10 @@ class OnInteractionEvent(commands.Cog):
                     view=CloseView(),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
+                create_ticket_record(
+                    ticketchannel.id, interaction.guild_id, interaction.user.id,
+                    tickettype,
+                )
                 await interaction.followup.send(
                     f"{tickettype.capitalize()} ticket created! {ticketchannel.mention}",
                     ephemeral=True,
@@ -414,6 +445,7 @@ class OnInteractionEvent(commands.Cog):
                 discord.Forbidden,
                 discord.HTTPException,
                 discord.InvalidData,
+                sqlite3.Error,
                 TypeError,
                 ValueError,
             ) as exc:
@@ -475,6 +507,15 @@ class OnInteractionEvent(commands.Cog):
                     f"[!] Closed at: {str(interaction.created_at)[:16]}"
                 )
 
+            if (config.get("ticketWorkspace") or {}).get("searchableTranscripts"):
+                try:
+                    save_transcript(
+                        interaction.guild_id, interaction.channel.id,
+                        transcript_path.read_text(encoding="utf-8"),
+                    )
+                except (OSError, sqlite3.Error) as exc:
+                    print(f"[!] Could not index ticket transcript: {exc}")
+
             logfile = None
             try:
                 logfile = discord.File(transcript_path, filename=transcript_path.name)
@@ -519,6 +560,7 @@ class OnInteractionEvent(commands.Cog):
             emb.set_author(name=interaction.message.embeds[0].author.name, icon_url=interaction.message.embeds[0].author.icon_url)
             await interaction.response.send_message(embed=emb, view=CloseView2())
             owner_id = ticket_owner_id(interaction.channel)
+            update_ticket(interaction.channel.id, interaction.guild_id, status="closed")
             owner = interaction.guild.get_member(owner_id) if owner_id else None
             if owner is not None:
                 await interaction.channel.set_permissions(
@@ -551,6 +593,7 @@ class OnInteractionEvent(commands.Cog):
                 await interaction.channel.delete(
                     reason=f"Ticket deleted by {interaction.user}"
                 )
+                update_ticket(interaction.channel.id, interaction.guild_id, status="closed")
             except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
                 print(f"Could not delete ticket channel {interaction.channel.id}: {exc}")
                 await interaction.followup.send(
@@ -573,6 +616,7 @@ class OnInteractionEvent(commands.Cog):
                 )
                 return
             await interaction.response.send_message(f"Ticket Reopened by {interaction.user.mention}")
+            update_ticket(interaction.channel.id, interaction.guild_id, status="open")
             owner = interaction.guild.get_member(owner_id)
             if owner is not None:
                 await interaction.channel.set_permissions(

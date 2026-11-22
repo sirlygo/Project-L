@@ -13,8 +13,26 @@
   "modmail": 0,
   "kickMemberFunction": false,
   "logMessageContent": false,
-  "moderation": {"antiSpamEnabled": false, "blockInviteLinks": false},
+  "moderation": {
+    "antiSpamEnabled": false, "blockInviteLinks": false,
+    "spamLimit": 5, "spamWindowSeconds": 10,
+    "raidEnabled": false, "raidJoinLimit": 8, "raidWindowSeconds": 30,
+    "raidAction": "alert", "warningEscalationEnabled": false,
+    "warningEscalation": [
+      {"count": 3, "action": "timeout", "minutes": 10},
+      {"count": 5, "action": "timeout", "minutes": 1440}
+    ]
+  },
   "branding": {"rulesText": "", "art": {}},
+  "ticketWorkspace": {
+    "priorities": ["low", "normal", "high", "urgent"],
+    "searchableTranscripts": false,
+    "forms": {
+      "help": [{"label": "What do you need help with?", "required": true, "maxLength": 1000}],
+      "suggestions": [{"label": "What is your suggestion?", "required": true, "maxLength": 1000}],
+      "report": [{"label": "What would you like to report?", "required": true, "maxLength": 1000}]
+    }
+  },
   "voicecategory": 0,
   "streamRole": 0,
   "ytChannel": "",

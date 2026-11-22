@@ -10,6 +10,9 @@ import sqlite3
 import traceback
 from contextlib import closing
 from logFunction import print_interaction_info
+from dashboard_store import safe_record_case
+from config_loader import load_config
+from moderation_policy import escalation_for_warning_count
 
 
 WARNINGS_DESCRIPTION_LIMIT = 3900
@@ -347,12 +350,34 @@ class ModsCommand(commands.Cog):
                 )
                 warning_id = cursor.lastrowid
                 conn.commit()
+                warning_count = conn.execute(
+                    "SELECT COUNT(*) FROM warnings WHERE userid=?", (userid,),
+                ).fetchone()[0]
         except sqlite3.Error as exc:
             print(exc)
             await interaction.response.send_message(
                 "Could not save that warning. Please try again.", ephemeral=True
             )
             return
+
+        safe_record_case(interaction.guild_id, userid, interaction.user.id, "warn", reason)
+        moderation_settings = load_config().get("moderation") or {}
+        if moderation_settings.get("warningEscalationEnabled"):
+            try:
+                step = escalation_for_warning_count(
+                    moderation_settings.get("warningEscalation", []), warning_count,
+                )
+                if step and step["action"] == "timeout":
+                    until = discord.utils.utcnow() + datetime.timedelta(minutes=step["minutes"])
+                    await member.timeout(until, reason=f"Project L warning escalation ({warning_count})")
+                    safe_record_case(interaction.guild_id, userid, interaction.user.id,
+                                     "escalated_timeout", f"{step['minutes']} minutes after {warning_count} warnings")
+                elif step and step["action"] == "ban":
+                    await interaction.guild.ban(member, reason=f"Project L warning escalation ({warning_count})")
+                    safe_record_case(interaction.guild_id, userid, interaction.user.id,
+                                     "escalated_ban", f"After {warning_count} warnings")
+            except (ValueError, discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[!] Warning escalation for {userid} could not run: {exc}")
 
         class ChoiceView(discord.ui.View):
             def __init__(self):
@@ -556,6 +581,7 @@ class ModsCommand(commands.Cog):
         )
 
         await member.timeout(then)
+        safe_record_case(interaction.guild_id, member.id, interaction.user.id, "timeout", f"{minutes} minutes")
         await interaction.response.send_message(
             f"{member.mention} has been timed out for **{minutes}** minutes."
         )
@@ -730,6 +756,7 @@ class ModsCommand(commands.Cog):
             )
             return
         await interaction.guild.ban(member, reason=reason)
+        safe_record_case(interaction.guild_id, member.id, interaction.user.id, "ban", reason or "No reason provided")
         await interaction.response.send_message(f"{member.mention} has been banned.")
         return
 
@@ -744,6 +771,7 @@ class ModsCommand(commands.Cog):
             return
 
         await interaction.guild.unban(member)
+        safe_record_case(interaction.guild_id, member.id, interaction.user.id, "unban", "Unbanned")
         await interaction.response.send_message(f"{member.mention} has been unbanned.")
         return
 
@@ -767,6 +795,7 @@ class ModsCommand(commands.Cog):
             )
             return
         await interaction.guild.kick(member, reason=reason)
+        safe_record_case(interaction.guild_id, member.id, interaction.user.id, "kick", reason or "No reason provided")
         await interaction.response.send_message(f"{member.mention} has been kicked.")
         return
 

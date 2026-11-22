@@ -14,6 +14,7 @@ from easy_pil import Editor, load_image_async, Font
 from Commands.members import mAddBtn
 from Commands.panels import ensure_automatic_panels
 from channel_headers import ensure_channel_headers
+from dashboard_web import start_dashboard
 from config_loader import (
     BASE_DIR,
     ConfigError,
@@ -423,6 +424,13 @@ async def on_ready():
 
     if not checker.is_running():
         checker.start()
+
+    if not client.dashboard_attempted:
+        client.dashboard_attempted = True
+        try:
+            client.dashboard_server = await start_dashboard(client)
+        except (OSError, ValueError) as exc:
+            print(f"[!] Browser dashboard could not start: {exc}")
 
 
 @tasks.loop(seconds=30)
@@ -954,6 +962,8 @@ def configure_client_state():
     client.panels_reconciled = False
     client.headers_reconciled = False
     client.layout_reconciled = False
+    client.dashboard_attempted = False
+    client.dashboard_server = None
     client.configured_guild_id = guildId
     client.colour = discord.Colour.from_rgb(101, 255, 0)
     client.modmailid = modmailid
@@ -1002,7 +1012,11 @@ async def startup():
     configure_client_state()
     async with client:
         await loadcogs()
-        await client.start(token)
+        try:
+            await client.start(token)
+        finally:
+            if client.dashboard_server is not None:
+                await client.dashboard_server.stop()
 
 
 def main():
