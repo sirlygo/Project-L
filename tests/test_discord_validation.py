@@ -160,7 +160,12 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
                 "permissions": str(required_bot_permissions()),
                 "position": 1,
             },
-            {"id": "401", "name": "Project L Verified", "permissions": "0", "position": 1},
+            {
+                "id": "401",
+                "name": "Project L Verified",
+                "permissions": "0",
+                "position": 1,
+            },
         ]
         report = validate_discord_snapshot_report(
             self.config,
@@ -170,7 +175,9 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
             channels=[],
             roles=roles,
         )
-        self.assertFalse(any("Verified Role is not below" in error for error in report.errors))
+        self.assertFalse(
+            any("Verified Role is not below" in error for error in report.errors)
+        )
 
         roles[2]["id"] = "199"
         self.config["verified"] = 199
@@ -182,7 +189,45 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
             channels=[],
             roles=roles,
         )
-        self.assertTrue(any("Verified Role is not below" in error for error in report.errors))
+        self.assertTrue(
+            any("Verified Role is not below" in error for error in report.errors)
+        )
+
+    def test_verification_gate_requires_welcome_exception_and_private_public_channels(
+        self,
+    ):
+        view = PERMISSION_BITS["view_channel"]
+        self.config["verified"] = 401
+        self.config["welcome"] = 301
+        self.config["managedResources"] = {"provisioningVersion": 4}
+        roles = [
+            {"id": "100", "permissions": "0", "position": 0},
+            {"id": "401", "permissions": str(view), "position": 1},
+        ]
+        channels = [
+            {
+                "id": "301",
+                "name": "welcome",
+                "type": 0,
+                "permission_overwrites": [
+                    {"id": "100", "type": 0, "allow": str(view), "deny": "0"},
+                    {"id": "401", "type": 0, "allow": "0", "deny": str(view)},
+                ],
+            },
+            {"id": "302", "name": "general", "type": 0, "permission_overwrites": []},
+        ]
+        report = validate_discord_snapshot_report(
+            self.config, [], bot_user={"id": "200"}, channels=channels, roles=roles
+        )
+        self.assertFalse(any("Verification gate" in error for error in report.errors))
+
+        channels[1]["permission_overwrites"] = [
+            {"id": "100", "type": 0, "allow": str(view), "deny": "0"}
+        ]
+        report = validate_discord_snapshot_report(
+            self.config, [], bot_user={"id": "200"}, channels=channels, roles=roles
+        )
+        self.assertTrue(any("general is public" in error for error in report.errors))
 
     def test_channel_overwrite_can_remove_a_required_bot_permission(self):
         self.config["welcome"] = 301
@@ -375,7 +420,9 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
         wizard.messagebox = Mock()
         wizard.set_status = Mock()
         wizard.saved = False
-        wizard.validated_live_values = Mock(side_effect=DiscordGuildAccessError(654321, 123456))
+        wizard.validated_live_values = Mock(
+            side_effect=DiscordGuildAccessError(654321, 123456)
+        )
         with (
             patch("configure_gui.webbrowser.open", return_value=True) as open_browser,
             patch("configure_gui.save_configuration") as save_configuration,
@@ -418,9 +465,7 @@ class DiscordSnapshotValidationTests(unittest.TestCase):
         with patch("configure_gui.webbrowser.open", return_value=True) as open_browser:
             wizard.open_server_in_discord()
 
-        open_browser.assert_called_once_with(
-            "https://discord.com/channels/123456789"
-        )
+        open_browser.assert_called_once_with("https://discord.com/channels/123456789")
         wizard.messagebox.showerror.assert_not_called()
 
     def test_gui_requires_privileged_intent_confirmation(self):

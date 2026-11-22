@@ -85,7 +85,13 @@ def discover_bot_user_id(
 class DiscordProvisioningError(RuntimeError):
     """Raised when automatic Discord resource setup cannot finish safely."""
 
-    def __init__(self, message: str, *, http_status: int | None = None, discord_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        discord_code: int | None = None,
+    ):
         super().__init__(message)
         self.http_status = http_status
         self.discord_code = discord_code
@@ -379,8 +385,9 @@ def _ensure_role(
     name: str,
     preferred_id: int,
     mentionable: bool,
+    required_permissions: int = 0,
 ) -> dict[str, Any]:
-    """Reuse an assignable role or create a safe no-permission role."""
+    """Reuse an assignable role or create one with only required permissions."""
     top_role_key = _bot_top_role_key(snapshot)
 
     def usable(role: Mapping[str, Any]) -> bool:
@@ -388,9 +395,9 @@ def _ensure_role(
             int(role.get("id", 0) or 0) != snapshot.guild_id
             and not role.get("managed", False)
             and role_hierarchy_key(role) < top_role_key
-            # Verification and streamer roles are granted by self-service
-            # controls. Never reuse a role carrying server permissions.
-            and _permission_value(role.get("permissions")) == 0
+            # Never reuse a role carrying permissions outside this role's
+            # narrowly required set. A zero-permission role can be upgraded.
+            and _permission_value(role.get("permissions")) in (0, required_permissions)
         )
 
     role = next(
@@ -420,7 +427,7 @@ def _ensure_role(
             timeout,
             {
                 "name": name,
-                "permissions": "0",
+                "permissions": str(required_permissions),
                 "color": 0,
                 "hoist": False,
                 "mentionable": mentionable,
@@ -435,18 +442,23 @@ def _ensure_role(
         report.created.append(f"{label} role")
         return role
 
+    updates = {}
     if bool(role.get("mentionable", False)) != mentionable:
+        updates["mentionable"] = mentionable
+    if _permission_value(role.get("permissions")) != required_permissions:
+        updates["permissions"] = str(required_permissions)
+    if updates:
         updated = request_json(
             "PATCH",
             f"guilds/{snapshot.guild_id}/roles/{int(role['id'])}",
             token,
             timeout,
-            {"mentionable": mentionable},
+            updates,
         )
         if isinstance(updated, Mapping):
             role.update(updated)
         else:
-            role["mentionable"] = mentionable
+            role.update(updates)
         report.updated.append(f"{label} role")
     else:
         report.reused.append(f"{label} role")
@@ -501,6 +513,82 @@ def _public_readonly_overwrites(
     )
     overwrites.append(_overwrite(snapshot.bot_user_id, 1, allow=writer_permissions))
     return overwrites
+
+
+def _welcome_gate_overwrites(
+    snapshot: _DiscordSnapshot, verified_role_id: int
+) -> list[dict[str, Any]]:
+    """Show the Verify panel before verification, then hide this channel."""
+    overwrites = _public_readonly_overwrites(snapshot)
+    view = PERMISSION_BITS["view_channel"]
+    everyone = overwrites[0]
+    everyone["allow"] = str(_permission_value(everyone["allow"]) | view)
+    overwrites.append(_overwrite(verified_role_id, 0, deny=view))
+    return overwrites
+
+
+def _finish_verification_gate(
+    *,
+    snapshot: _DiscordSnapshot,
+    welcome_id: int,
+    request_json: RequestJson,
+    token: str,
+    timeout: float,
+    report: DiscordProvisioningReport,
+) -> None:
+    """Close public visibility only after the welcome exception exists."""
+    view = PERMISSION_BITS["view_channel"]
+    everyone_id = str(snapshot.guild_id)
+    for channel in snapshot.channels:
+        if _channel_id(channel) == welcome_id:
+            continue
+        overwrite = next(
+            (
+                item
+                for item in channel.get("permission_overwrites", []) or []
+                if str(item.get("id")) == everyone_id
+                and int(item.get("type", 0) or 0) == 0
+            ),
+            None,
+        )
+        if overwrite is None or not _permission_value(overwrite.get("allow")) & view:
+            continue
+        payload = {
+            "type": 0,
+            "allow": str(_permission_value(overwrite.get("allow")) & ~view),
+            "deny": str(_permission_value(overwrite.get("deny"))),
+        }
+        request_json(
+            "PUT",
+            f"channels/{_channel_id(channel)}/permissions/{everyone_id}",
+            token,
+            timeout,
+            payload,
+        )
+        overwrite.update(payload)
+        report.updated.append(
+            f"verification visibility for channel {_channel_id(channel)}"
+        )
+
+    everyone = next(
+        role
+        for role in snapshot.roles
+        if _permission_value(role.get("id")) == snapshot.guild_id
+    )
+    permissions = _permission_value(everyone.get("permissions"))
+    if permissions & view:
+        updated = request_json(
+            "PATCH",
+            f"guilds/{snapshot.guild_id}/roles/{snapshot.guild_id}",
+            token,
+            timeout,
+            {"permissions": str(permissions & ~view)},
+        )
+        if isinstance(updated, Mapping):
+            everyone.update(updated)
+        else:
+            everyone["permissions"] = str(permissions & ~view)
+        report.updated.append("@everyone verification gate")
 
 
 def _stats_overwrites(snapshot: _DiscordSnapshot) -> list[dict[str, Any]]:
@@ -843,6 +931,7 @@ def provision_guild_resources(
         name="Project L Verified",
         preferred_id=_permission_value(updated_config.get("verified")),
         mentionable=False,
+        required_permissions=PERMISSION_BITS["view_channel"],
     )
     updated_config["verified"] = _permission_value(verified_role.get("id"))
     streamer_role = _ensure_role(
@@ -883,6 +972,7 @@ def provision_guild_resources(
 
     private_overwrites = _private_overwrites(snapshot)
     public_overwrites = _public_readonly_overwrites(snapshot)
+    welcome_overwrites = _welcome_gate_overwrites(snapshot, updated_config["verified"])
     stats_overwrites = _stats_overwrites(snapshot)
 
     community = _ensure_resource(
@@ -927,7 +1017,7 @@ def provision_guild_resources(
         channel_type=TEXT_CHANNEL,
         preferred_ids=[_permission_value(updated_config.get("welcome"))],
         parent_id=_channel_id(community),
-        overwrites=public_overwrites,
+        overwrites=welcome_overwrites,
     )
     updated_config["welcome"] = _channel_id(welcome)
     # Welcome images are attached directly to the public welcome message now.
@@ -1139,13 +1229,18 @@ def provision_guild_resources(
         request_json=request_json,
         timeout=timeout,
     )
-    report.created.extend(
-        f"server emoji :{name}:" for name in emoji_report.created
-    )
-    report.reused.extend(
-        f"server emoji :{name}:" for name in emoji_report.existing
-    )
+    report.created.extend(f"server emoji :{name}:" for name in emoji_report.created)
+    report.reused.extend(f"server emoji :{name}:" for name in emoji_report.existing)
     report.warnings.extend(emoji_report.warnings)
+
+    _finish_verification_gate(
+        snapshot=snapshot,
+        welcome_id=updated_config["welcome"],
+        request_json=request_json,
+        token=token,
+        timeout=timeout,
+        report=report,
+    )
 
     managed["provisioningVersion"] = AUTOMATIC_SETUP_VERSION
     return updated_config, report

@@ -10,7 +10,7 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "Data" / "config.json"
 ROLES_PATH = BASE_DIR / "Data" / "roles.json"
-AUTOMATIC_SETUP_VERSION = 3
+AUTOMATIC_SETUP_VERSION = 4
 
 ID_FIELDS = (
     "guildId",

@@ -155,14 +155,27 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertTrue(config["welcome"])
         self.assertTrue(config["verified"])
         self.assertTrue(config["streamRole"])
+        verified_role = next(
+            role for role in self.api.roles if int(role["id"]) == config["verified"]
+        )
         self.assertEqual(
-            sum(len(group) for group in config["managedResources"]["selfRoles"].values()),
+            int(verified_role["permissions"]), PERMISSION_BITS["view_channel"]
+        )
+        self.assertFalse(
+            int(self.api.roles[0]["permissions"]) & PERMISSION_BITS["view_channel"]
+        )
+        self.assertEqual(
+            sum(
+                len(group) for group in config["managedResources"]["selfRoles"].values()
+            ),
             sum(len(choices) for choices in ROLE_GROUPS.values()),
         )
         for group, choices in ROLE_GROUPS.items():
             for choice in choices:
                 role_id = config["managedResources"]["selfRoles"][group][choice]
-                role = next(role for role in self.api.roles if int(role["id"]) == role_id)
+                role = next(
+                    role for role in self.api.roles if int(role["id"]) == role_id
+                )
                 self.assertEqual(role["name"], role_name(group, choice))
                 self.assertEqual(int(role["permissions"]), 0)
         self.assertTrue(config["managedResources"]["panelsChannel"])
@@ -194,11 +207,16 @@ class DiscordProvisioningTests(unittest.TestCase):
         )
         everyone_welcome = self.overwrite_for(welcome, 100)
         self.assertTrue(
+            int(everyone_welcome["allow"]) & PERMISSION_BITS["view_channel"]
+        )
+        self.assertTrue(
             int(everyone_welcome["deny"]) & PERMISSION_BITS["send_messages"]
         )
         self.assertFalse(
             int(everyone_welcome["deny"]) & PERMISSION_BITS["view_channel"]
         )
+        verified_welcome = self.overwrite_for(welcome, config["verified"])
+        self.assertTrue(int(verified_welcome["deny"]) & PERMISSION_BITS["view_channel"])
 
         stat_channel_id = config["serverStatChannelIds"]["totalMembers"]
         stat_channel = next(
@@ -289,6 +307,29 @@ class DiscordProvisioningTests(unittest.TestCase):
         self.assertTrue(first_report.created)
         self.assertEqual(second_report.created, [])
         self.assertEqual(second_config, config)
+
+    def test_existing_public_channel_allow_is_cleared_without_losing_other_bits(self):
+        view = PERMISSION_BITS["view_channel"]
+        send = PERMISSION_BITS["send_messages"]
+        self.api.channels.append(
+            {
+                "id": "900",
+                "type": 0,
+                "name": "lobby",
+                "parent_id": None,
+                "permission_overwrites": [
+                    {"id": "100", "type": 0, "allow": str(view | send), "deny": "0"}
+                ],
+            }
+        )
+        _config, report = provision_guild_resources(
+            self.config, token="token", request_json=self.api
+        )
+        lobby = next(channel for channel in self.api.channels if channel["id"] == "900")
+        everyone_lobby = self.overwrite_for(lobby, 100)
+        self.assertFalse(int(everyone_lobby["allow"]) & view)
+        self.assertTrue(int(everyone_lobby["allow"]) & send)
+        self.assertIn("verification visibility for channel 900", report.updated)
 
     def test_integrations_share_one_automatic_alert_channel(self):
         self.config["ytChannel"] = "https://www.youtube.com/@projectl"
@@ -399,7 +440,7 @@ class DiscordProvisioningTests(unittest.TestCase):
         created = next(
             role for role in self.api.roles if int(role["id"]) == config["verified"]
         )
-        self.assertEqual(int(created["permissions"]), 0)
+        self.assertEqual(int(created["permissions"]), PERMISSION_BITS["view_channel"])
         streamer = next(
             role for role in self.api.roles if int(role["id"]) == config["streamRole"]
         )

@@ -244,9 +244,7 @@ class ProjectLSetupWizard:
         )
         self.ttk.Button(
             footer, text="Check Readiness", command=self.validate_only
-        ).grid(
-            row=1, column=2, padx=(8, 0)
-        )
+        ).grid(row=1, column=2, padx=(8, 0))
         self.ttk.Button(
             footer,
             text="Save & Create",
@@ -530,7 +528,7 @@ class ProjectLSetupWizard:
         self._section(
             "channels",
             "Existing role overrides (optional)",
-            "Leave these blank and Project L creates safe verified and streamer roles automatically. Enter an ID only to reuse an existing zero-permission role below the bot's highest role.",
+            "Leave these blank and Project L creates safe verified and streamer roles automatically. The Verified role receives only View Channel so it can unlock public channels; the Streamer role has no permissions. Existing roles must be below the bot's highest role.",
         )
         fields = (
             (
@@ -695,9 +693,7 @@ class ProjectLSetupWizard:
                 "overwrite branding already chosen by the server owner."
             ),
         )
-        controls = self.ttk.Frame(
-            self.tabs["branding"].content, style="Page.TFrame"
-        )
+        controls = self.ttk.Frame(self.tabs["branding"].content, style="Page.TFrame")
         controls.grid(
             row=self.tabs["branding"].content.grid_size()[1],
             column=0,
@@ -896,8 +892,7 @@ class ProjectLSetupWizard:
         warnings = list(report.warnings)
         if provisioning_report is not None:
             warnings.extend(
-                f"Optional art: {warning}"
-                for warning in provisioning_report.warnings
+                f"Optional art: {warning}" for warning in provisioning_report.warnings
             )
         return config, role_ids, warnings, provisioning_report
 
@@ -939,7 +934,10 @@ class ProjectLSetupWizard:
             )
             save_configuration(config, role_ids)
         except DiscordGuildAccessError as exc:
-            self.set_status("Authorize the bot for this server, then retry Save & Create.", error=True)
+            self.set_status(
+                "Authorize the bot for this server, then retry Save & Create.",
+                error=True,
+            )
             opened = webbrowser.open(exc.invite_url)
             next_step = (
                 "The bot invite has opened in your browser. Complete Discord's "

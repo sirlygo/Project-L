@@ -444,6 +444,72 @@ def validate_discord_snapshot_report(
         if role_id and role_id not in role_index:
             errors.append(f"{label} was not found in the configured server.")
 
+    managed = config.get("managedResources", {})
+    if (
+        isinstance(managed, Mapping)
+        and int(managed.get("provisioningVersion", 0) or 0) >= 4
+    ):
+        guild_id = int(config.get("guildId", 0) or 0)
+        verified_id = int(config.get("verified", 0) or 0)
+        view = PERMISSION_BITS["view_channel"]
+        everyone = role_index.get(guild_id)
+        verified = role_index.get(verified_id)
+        if (
+            everyone is not None
+            and _permission_value(everyone.get("permissions")) & view
+        ):
+            errors.append(
+                "Verification gate is incomplete: @everyone can still view channels."
+            )
+        if (
+            verified is not None
+            and not _permission_value(verified.get("permissions")) & view
+        ):
+            errors.append(
+                "Verification gate is incomplete: Verified cannot view channels."
+            )
+        welcome_id = int(config.get("welcome", 0) or 0)
+        welcome = channel_index.get(welcome_id)
+        if welcome is not None:
+            everyone_overwrite = next(
+                (
+                    item
+                    for item in welcome.get("permission_overwrites", []) or []
+                    if int(item.get("id", 0) or 0) == guild_id
+                    and int(item.get("type", 0) or 0) == 0
+                ),
+                {},
+            )
+            verified_overwrite = next(
+                (
+                    item
+                    for item in welcome.get("permission_overwrites", []) or []
+                    if int(item.get("id", 0) or 0) == verified_id
+                    and int(item.get("type", 0) or 0) == 0
+                ),
+                {},
+            )
+            if not _permission_value(everyone_overwrite.get("allow")) & view:
+                errors.append(
+                    "Verification gate is incomplete: new members cannot see Welcome."
+                )
+            if not _permission_value(verified_overwrite.get("deny")) & view:
+                errors.append(
+                    "Verification gate is incomplete: Welcome remains visible after verification."
+                )
+        for channel in channels:
+            if int(channel.get("id", 0) or 0) == welcome_id:
+                continue
+            if any(
+                int(item.get("id", 0) or 0) == guild_id
+                and int(item.get("type", 0) or 0) == 0
+                and _permission_value(item.get("allow")) & view
+                for item in channel.get("permission_overwrites", []) or []
+            ):
+                errors.append(
+                    f"Verification gate is incomplete: {channel.get('name', 'a channel')} is public before verification."
+                )
+
     if bot_member is not None:
         base_permissions, bot_role_ids, highest_bot_role_key = _bot_guild_permissions(
             config, bot_member, role_index

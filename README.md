@@ -254,6 +254,14 @@ Settings > Overview**. Exact dimensions and usage notes are in
 buttons from working; the bot falls back to a text-only embed. Emoji slot,
 permission, or file problems are non-blocking setup warnings.
 
+## Verification gate
+
+Project L makes `#welcome` the only channel visible to ordinary new members.
+The Verify button gives them `Project L Verified`, which unlocks public channels
+and hides `#welcome`. Private staff, modmail, and ticket areas keep their
+existing access rules. Server owners and administrators bypass ordinary channel
+visibility restrictions, so test the gate with a non-administrator account.
+
 ## Data and privacy
 
 - Ticket attachments remain on Discord; the bot no longer uploads them to a
